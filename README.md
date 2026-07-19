@@ -43,4 +43,4 @@ published until the log proves the panel earns its keep — see
 
 ## License
 
-MIT (provisional — see issues; to be confirmed before any public flip).
+Apache-2.0 — chosen for its explicit patent grant (see docs/POSITIONING.md).
