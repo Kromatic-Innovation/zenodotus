@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: python -m pytest -q
+
+  # Aggregate gate (org standard): a single required check named "CI Required"
+  # that summarizes the real CI jobs, fail-closed.
+  ci-required:
+    name: CI Required
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate CI result
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          echo "test=$TEST_RESULT"
+          case "$TEST_RESULT" in
+            success|skipped) echo "CI Required: green"; exit 0 ;;
+            *) echo "::error::CI job result '$TEST_RESULT' is not green"; exit 1 ;;
+          esac

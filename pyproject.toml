@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zenodotus"
+version = "0.0.0"
+description = "OSS release-readiness gate: deterministic pre-gates + a no-context reviewer panel"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+keywords = ["open-source", "release", "readiness", "review", "gate", "llm"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+zenodotus = "zenodotus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zenodotus"]
+
+[tool.ruff]
+line-length = 100
