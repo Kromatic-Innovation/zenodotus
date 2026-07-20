@@ -1,4 +1,8 @@
-# Per-repo config for the hestia maintenance/feature-build fleet.
-archetype: library
+# hestia.yml — configuration for Hestia, an automated repository-maintenance
+# bot that opens routine upkeep and feature PRs against this project (docs
+# builds, dependency bumps, small tracked issues). This file holds the
+# per-repo knobs that bot reads; it does not affect the published package or
+# how you run Zenodotus. Safe to ignore if you are only using the tool.
+archetype: library      # repo shape the bot assumes (library vs. service)
 audience: internal   # flips to `public` only after the prove-itself milestone
 traffic: low
