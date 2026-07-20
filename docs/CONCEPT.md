@@ -14,8 +14,9 @@
    and to internal context, and renders a structured go/no-go with rationale.
    This is a standalone Python implementation, not a dependency on
    [panelist](https://github.com/Kromatic-Innovation/panelist) (the org's
-   general-purpose persona-panel engine) — see zenodotus#36 for the rationale
-   and the plan for a shared verdict spec.
+   general-purpose persona-panel engine) — see zenodotus#36 for the rationale.
+   Both panels satisfy a shared verdict shape instead of sharing code; the
+   spec is [`docs/PANEL_VERDICT_SPEC.md`](PANEL_VERDICT_SPEC.md).
 3. **Verdict** — deterministic floor AND panel consensus.
 
 ### Tools wired into the deterministic floor (`src/zenodotus/gates.py`)
