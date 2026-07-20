@@ -8,7 +8,7 @@ Wired gates:
   - license_present   -> file check + ``licensee`` (if installed)
   - community_files   -> README / CONTRIBUTING / CODE_OF_CONDUCT / SECURITY presence
   - no_secrets        -> Gitleaks
-  - packaging_ok      -> pyroma + ``twine check``
+  - packaging_ok      -> ecosystem-aware: pyroma (Python) / package.json + ``npm pack`` (npm)
   - security_posture  -> OpenSSF Scorecard (optional; off by default)
 
 External tools are invoked as subprocesses and are OPTIONAL: when a tool is not
@@ -135,7 +135,66 @@ def no_secrets(path: str) -> GateResult:
                       tool="gitleaks", data={"exit_code": proc.returncode})
 
 
+# Packaging manifests we can gate, checked in order. The first match wins.
+_PACKAGING_MANIFESTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("python", ("pyproject.toml", "setup.py", "setup.cfg")),
+    ("npm", ("package.json",)),
+)
+# Ecosystems we recognize but don't gate yet — used only to make the skip legible
+# instead of running a Python-only tool against them and hard-failing (#41).
+_UNSUPPORTED_MANIFESTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("go", ("go.mod",)),
+    ("rust", ("Cargo.toml",)),
+    ("java-maven", ("pom.xml",)),
+    ("java-gradle", ("build.gradle", "build.gradle.kts")),
+    ("ruby", ("Gemfile",)),
+    ("php", ("composer.json",)),
+)
+# package.json fields expected before an npm package can be meaningfully published.
+_NPM_REQUIRED_FIELDS = ("name", "version")
+_NPM_RECOMMENDED_FIELDS = ("description", "license", "repository")
+
+
+def _detect_ecosystem(root: Path) -> str:
+    """Classify a repo's packaging ecosystem from its manifest file(s).
+
+    Returns a gateable ecosystem (``python`` / ``npm``), a recognized-but-
+    ungated one (``go``, ``rust``, ...), or ``none`` when no manifest is found.
+    """
+    for eco, manifests in _PACKAGING_MANIFESTS:
+        if any((root / m).is_file() for m in manifests):
+            return eco
+    for eco, manifests in _UNSUPPORTED_MANIFESTS:
+        if any((root / m).is_file() for m in manifests):
+            return eco
+    return "none"
+
+
 def packaging_ok(path: str) -> GateResult:
+    """Packaging hygiene, ecosystem-aware (#41).
+
+    Detects the repo's packaging ecosystem from its manifest and runs the
+    matching check instead of always shelling out to ``pyroma`` (which only
+    understands Python packaging and rated any non-Python repo 0/10, hard-failing
+    the floor deterministically):
+
+      - Python (``pyproject.toml`` / ``setup.py`` / ``setup.cfg``) -> pyroma
+      - npm    (``package.json``)                                  -> field hygiene + ``npm pack --dry-run``
+      - any other / no manifest                                    -> skipped (surfaced, does not fail the floor)
+    """
+    root = Path(path)
+    ecosystem = _detect_ecosystem(root)
+    if ecosystem == "python":
+        return _packaging_ok_python(path)
+    if ecosystem == "npm":
+        return _packaging_ok_npm(root)
+    why = ("no packaging manifest found" if ecosystem == "none"
+           else f"{ecosystem} packaging not gated yet")
+    return GateResult("packaging_ok", False, f"packaging gate skipped — {why}",
+                      skipped=True, data={"ecosystem": ecosystem})
+
+
+def _packaging_ok_python(path: str) -> GateResult:
     """PyPI packaging hygiene via pyroma. Degrades to skipped if pyroma is absent.
 
     (``twine check`` needs a built ``dist/`` and is run by the CLI when artifacts
@@ -148,7 +207,61 @@ def packaging_ok(path: str) -> GateResult:
     tail = (proc.stdout or proc.stderr).strip().splitlines()[-1:] or [""]
     return GateResult("packaging_ok", passed,
                       f"pyroma (min rating 8/10): {'pass' if passed else 'fail'} — {tail[0][:160]}",
-                      tool="pyroma", data={"exit_code": proc.returncode})
+                      tool="pyroma", data={"exit_code": proc.returncode, "ecosystem": "python"})
+
+
+def _packaging_ok_npm(root: Path) -> GateResult:
+    """npm packaging hygiene: package.json field checks + optional ``npm pack --dry-run``.
+
+    package.json parsing is pure-Python (always available); ``npm pack`` is only
+    run when the ``npm`` binary is installed and its absence degrades that deeper
+    step gracefully — matching the tool-absent contract of the other gates.
+    """
+    import json
+
+    pkg_path = root / "package.json"
+    try:
+        pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return GateResult("packaging_ok", False,
+                          f"package.json present but unreadable: {exc}",
+                          tool="npm", data={"ecosystem": "npm"})
+    if not isinstance(pkg, dict):
+        return GateResult("packaging_ok", False, "package.json is not a JSON object",
+                          tool="npm", data={"ecosystem": "npm"})
+
+    # A package marked private is legitimately not an npm publish target — surface
+    # it as skipped rather than failing hygiene it never intended to meet.
+    if pkg.get("private") is True:
+        return GateResult("packaging_ok", False,
+                          'package.json "private": true — not an npm publish target; gate skipped',
+                          skipped=True, tool="npm", data={"ecosystem": "npm", "private": True})
+
+    missing_required = [f for f in _NPM_REQUIRED_FIELDS if not pkg.get(f)]
+    missing_recommended = [f for f in _NPM_RECOMMENDED_FIELDS if not pkg.get(f)]
+    data: dict = {"ecosystem": "npm", "missing_required": missing_required,
+                  "missing_recommended": missing_recommended}
+    if missing_required:
+        return GateResult("packaging_ok", False,
+                          f"package.json missing required field(s): {', '.join(missing_required)}",
+                          tool="npm", data=data)
+
+    detail = "package.json ok (name, version present)"
+    if missing_recommended:
+        detail += f"; recommended missing: {', '.join(missing_recommended)}"
+
+    if _which("npm"):
+        proc = _run(["npm", "pack", "--dry-run"], cwd=str(root))
+        data["npm_pack_exit"] = proc.returncode
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [""]
+            return GateResult("packaging_ok", False,
+                              f"npm pack --dry-run failed (exit {proc.returncode}): {tail[0][:160]}",
+                              tool="npm", data=data)
+        detail = f"npm pack --dry-run ok; {detail}"
+    else:
+        detail += " (npm not installed — pack dry-run skipped)"
+    return GateResult("packaging_ok", True, detail, tool="npm", data=data)
 
 
 def security_posture(path: str) -> GateResult:

@@ -162,17 +162,88 @@ def test_no_secrets_reports_tool_error(clean_repo, monkeypatch):
 
 # --- packaging_ok ------------------------------------------------------------ #
 
-def test_packaging_ok_skips_without_pyroma(clean_repo, monkeypatch):
+def _python_repo(tmp_path):
+    d = tmp_path / "py"
+    d.mkdir()
+    (d / "pyproject.toml").write_text("[project]\nname='x'\nversion='0.1.0'\n")
+    return d
+
+
+def _npm_repo(tmp_path, pkg='{"name":"x","version":"0.1.0","description":"d","license":"MIT","repository":"r"}'):
+    d = tmp_path / "npm"
+    d.mkdir()
+    (d / "package.json").write_text(pkg)
+    return d
+
+
+def test_packaging_ok_skips_without_manifest(clean_repo, monkeypatch):
+    # clean_repo has no pyproject/package.json — no ecosystem to gate, so skip
+    # gracefully rather than hard-failing (the #41 regression: pyroma vs JS).
     _no_tools(monkeypatch)
     r = gates.packaging_ok(str(clean_repo))
     assert r.skipped and not r.passed
+    assert r.data["ecosystem"] == "none"
 
 
-def test_packaging_ok_pass_and_fail(clean_repo, monkeypatch):
+def test_packaging_ok_python_skips_without_pyroma(tmp_path, monkeypatch):
+    _no_tools(monkeypatch)
+    r = gates.packaging_ok(str(_python_repo(tmp_path)))
+    assert r.skipped and not r.passed
+    assert "pyroma" in r.detail
+
+
+def test_packaging_ok_python_pass_and_fail(tmp_path, monkeypatch):
+    d = _python_repo(tmp_path)
     _fake_tool(monkeypatch, present={"pyroma"}, returncode=0, stdout="Final rating: 9/10")
-    assert gates.packaging_ok(str(clean_repo)).passed
+    r = gates.packaging_ok(str(d))
+    assert r.passed and r.data["ecosystem"] == "python"
     _fake_tool(monkeypatch, present={"pyroma"}, returncode=1, stdout="Final rating: 3/10")
-    assert not gates.packaging_ok(str(clean_repo)).passed
+    assert not gates.packaging_ok(str(d)).passed
+
+
+def test_packaging_ok_npm_recognized_and_not_hardfailed(tmp_path, monkeypatch):
+    # the #41 core bug: a JS repo used to hard-fail via pyroma. Now it is gated
+    # as npm and a clean package.json passes without any tool installed.
+    _no_tools(monkeypatch)
+    r = gates.packaging_ok(str(_npm_repo(tmp_path)))
+    assert r.passed and not r.skipped
+    assert r.data["ecosystem"] == "npm"
+    assert "npm not installed" in r.detail
+
+
+def test_packaging_ok_npm_missing_required_field_fails(tmp_path, monkeypatch):
+    _no_tools(monkeypatch)
+    d = _npm_repo(tmp_path, pkg='{"name":"x"}')  # no version
+    r = gates.packaging_ok(str(d))
+    assert not r.passed and not r.skipped
+    assert "version" in r.data["missing_required"]
+
+
+def test_packaging_ok_npm_private_is_skipped(tmp_path, monkeypatch):
+    _no_tools(monkeypatch)
+    d = _npm_repo(tmp_path, pkg='{"name":"x","version":"1.0.0","private":true}')
+    r = gates.packaging_ok(str(d))
+    assert r.skipped and not r.passed
+    assert r.data["private"] is True
+
+
+def test_packaging_ok_npm_runs_pack_when_npm_available(tmp_path, monkeypatch):
+    d = _npm_repo(tmp_path)
+    _fake_tool(monkeypatch, present={"npm"}, returncode=0, stdout="x-0.1.0.tgz")
+    r = gates.packaging_ok(str(d))
+    assert r.passed and r.data["npm_pack_exit"] == 0
+    _fake_tool(monkeypatch, present={"npm"}, returncode=1, stderr="npm ERR! no name")
+    assert not gates.packaging_ok(str(d)).passed
+
+
+def test_packaging_ok_unsupported_ecosystem_skips_gracefully(tmp_path, monkeypatch):
+    _no_tools(monkeypatch)
+    d = tmp_path / "go"
+    d.mkdir()
+    (d / "go.mod").write_text("module example.com/x\n")
+    r = gates.packaging_ok(str(d))
+    assert r.skipped and not r.passed
+    assert r.data["ecosystem"] == "go"
 
 
 # --- security_posture (optional) -------------------------------------------- #
