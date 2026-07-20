@@ -14,10 +14,12 @@ The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 
 ## Status
 
-Bootstrap scaffold. Implementation is tracked in this repo's issues and built
-incrementally. Not yet functional.
+Core pipeline (deterministic gates → no-context reviewer panel → discovery log →
+verdict) is wired end to end via `zenodotus review`. Still pre-1.0 and under the
+"prove itself" milestone (docs/CONCEPT.md) — it stays private until the discovery
+log demonstrates the panel earns its keep.
 
-## How it will work
+## How it works
 
 ```
 zenodotus review <path-or-repo>
@@ -30,8 +32,52 @@ zenodotus review <path-or-repo>
          is logged — this is how the panel earns its keep.
 ```
 
-Runs **locally** (`pipx install zenodotus` / `python -m zenodotus`) or as a
-**deployable routine** (container / CI job).
+The command short-circuits: the panel only runs once the deterministic floor
+passes. The final verdict is `floor AND panel-consensus`, and the process exits
+non-zero on a no-go so it fails closed in CI.
+
+## Usage
+
+### Local
+
+```bash
+pipx install zenodotus            # or: pip install "zenodotus[llm]"
+export ANTHROPIC_API_KEY=sk-...   # the default reviewer provider (Claude); your own key
+zenodotus review /path/to/repo                     # human-readable verdict
+zenodotus review /path/to/repo --json              # machine-readable
+python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
+```
+
+Options: `--json` (machine-readable output), `--reviewers N` (panel size, default 3),
+`--log PATH` (discovery-log JSONL path; `--log ''` disables), `--include-optional`
+(also run heavier optional gates such as OpenSSF Scorecard). Exit code is `0` on go,
+non-zero on no-go.
+
+### Deployable routine (container / CI job)
+
+Run the same command in a container or CI step to gate a release candidate. A
+minimal container:
+
+```dockerfile
+FROM python:3.11-slim
+RUN pip install "zenodotus[llm,tools]"
+ENTRYPOINT ["zenodotus", "review"]
+```
+
+```bash
+docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/repo" zenodotus /repo --json
+```
+
+As a GitHub Actions step (fails the job on a no-go via the non-zero exit):
+
+```yaml
+- name: Zenodotus release-readiness gate
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  run: |
+    pip install "zenodotus[llm,tools]"
+    zenodotus review . --json --log discoveries.jsonl
+```
 
 The deterministic floor (`gates.py`) composes external tools as optional
 subprocesses and degrades gracefully when one is absent. The exact tools,
