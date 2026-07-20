@@ -175,3 +175,91 @@ def test_gather_context_includes_public_files_only(repo):
     assert "README" in ctx
     assert "File tree" in ctx
     assert "thing.py" in ctx  # appears in the tree
+
+
+# --- gather_context precision (issue #30 regression) ------------------------- #
+# The no-context panel raised false blockers traced entirely to three gather
+# defects (tickle-stick / athenaeum prove-itself runs): truncated-but-complete
+# READMEs read as "unfinished", untracked working-tree noise read as "leaked
+# internal files", and an omitted LICENSE body read as "license uncertainty".
+
+import shutil  # noqa: E402 — grouped with the regression block it supports
+import subprocess  # noqa: E402
+
+
+def test_gather_context_includes_license_body(tmp_path):
+    # defect 3: the LICENSE body is present so reviewers can resolve license
+    # questions instead of raising license-mismatch/uncertainty findings.
+    d = tmp_path / "rc"
+    d.mkdir()
+    (d / "README.md").write_text("# Thing\n")
+    (d / "LICENSE").write_text("Apache License\nVersion 2.0\n\nGrant of Copyright License...\n")
+    ctx = panel.gather_context(str(d))
+    assert "## LICENSE" in ctx
+    assert "Grant of Copyright License" in ctx
+
+
+def test_gather_context_does_not_truncate_long_but_complete_readme(tmp_path):
+    # defect 1: a long-but-complete README (tickle-stick was 13,901 chars, well
+    # past the old 8,000 cap) must appear in full, with no truncation annotation.
+    d = tmp_path / "rc"
+    d.mkdir()
+    body = "# Big project\n\n" + ("An honest, complete sentence about the tool. " * 400)
+    assert len(body) > 8000  # would have been sliced under the old cap
+    (d / "README.md").write_text(body)
+    ctx = panel.gather_context(str(d))
+    assert body in ctx  # whole file, not cut at 8,000 mid-word
+    assert "omitted" not in ctx  # no truncation annotation for an in-cap file
+
+
+def test_gather_context_annotates_when_file_exceeds_cap(tmp_path, monkeypatch):
+    # defect 1: if the cap is ever hit, the omission is annotated as COMPLETE-
+    # upstream rather than silently cut, so it never reads as "unfinished".
+    d = tmp_path / "rc"
+    d.mkdir()
+    monkeypatch.setattr(panel, "_MAX_FILE_CHARS", 50)
+    (d / "README.md").write_text("A" * 500)
+    ctx = panel.gather_context(str(d))
+    assert "450 more character" in ctx  # 500 - 50 omitted
+    assert "COMPLETE, not" in ctx  # explicit "not truncated/unfinished" annotation
+
+
+def test_gather_context_uses_tracked_files_only_in_git_repo(tmp_path):
+    # defect 2: inside a git work tree, only tracked files appear — untracked
+    # generated noise (.venv/, dist/, .DS_Store) must not present as shipped.
+    if shutil.which("git") is None:  # pragma: no cover - git is a CI dependency
+        import pytest as _pytest
+        _pytest.skip("git not available")
+    d = tmp_path / "rc"
+    d.mkdir()
+    (d / "README.md").write_text("# Real\nShipped content.\n")
+    (d / "src").mkdir()
+    (d / "src" / "core.py").write_text("value = 1\n")
+    (d / ".venv").mkdir()
+    (d / ".venv" / "junk.py").write_text("internal_only = 1\n")
+    (d / "dist").mkdir()
+    (d / "dist" / "pkg.whl").write_text("built artifact\n")
+    (d / ".DS_Store").write_text("mac noise\n")
+    subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+    subprocess.run(["git", "add", "README.md", "src/core.py"], cwd=d, check=True)
+    ctx = panel.gather_context(str(d))
+    assert "src/core.py" in ctx  # tracked file present in the tree
+    assert ".venv" not in ctx
+    assert "dist/pkg.whl" not in ctx
+    assert ".DS_Store" not in ctx
+
+
+def test_gather_context_fallback_filters_junk_without_git(tmp_path):
+    # defect 2 fallback: for a non-git target (e.g. an extracted package), the
+    # walk still drops obvious untracked/generated noise by name.
+    d = tmp_path / "pkg"  # a plain directory, deliberately NOT git-initialised
+    d.mkdir()
+    (d / "README.md").write_text("# Pkg\n")
+    (d / "node_modules").mkdir()
+    (d / "node_modules" / "dep.js").write_text("module.exports = 1\n")
+    (d / "__pycache__").mkdir()
+    (d / "__pycache__" / "x.pyc").write_text("bytecode\n")
+    ctx = panel.gather_context(str(d))
+    assert "README.md" in ctx
+    assert "node_modules" not in ctx
+    assert "__pycache__" not in ctx
