@@ -12,6 +12,12 @@ and naming sensible, is there internal/proprietary leakage that isn't a
 
 The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 
+> Zenodotus's panel (`panel.py`) is a standalone Python implementation, purpose-built
+> for release-gate judgment calls. It's conceptually related to (but does not
+> depend on) [**panelist**](https://github.com/Kromatic-Innovation/panelist) —
+> the org's general-purpose synthetic persona-panel engine (npm). See
+> zenodotus#36 for why they're kept separate rather than wired together.
+
 ## Status
 
 Core pipeline (deterministic gates → no-context reviewer panel → discovery log →

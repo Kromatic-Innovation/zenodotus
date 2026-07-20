@@ -12,6 +12,10 @@
 2. **Judgment panel** — N independent no-context reviewers (default provider:
    Anthropic Claude; provider-agnostic). Each reviewer is blind to the others
    and to internal context, and renders a structured go/no-go with rationale.
+   This is a standalone Python implementation, not a dependency on
+   [panelist](https://github.com/Kromatic-Innovation/panelist) (the org's
+   general-purpose persona-panel engine) — see zenodotus#36 for the rationale
+   and the plan for a shared verdict spec.
 3. **Verdict** — deterministic floor AND panel consensus.
 
 ### Tools wired into the deterministic floor (`src/zenodotus/gates.py`)
