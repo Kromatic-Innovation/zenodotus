@@ -20,20 +20,38 @@ jobs:
       - run: ruff check .
       - run: python -m pytest -q
 
+  # Leak self-check (issue #11): scan the repo for Kromatic-internal markers.
+  # MUST pass before the public flip (issue #6) — this is that prerequisite.
+  leak-check:
+    name: Leak self-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e .
+      - run: python -m zenodotus.leakcheck .
+
   # Aggregate gate (org standard): a single required check named "CI Required"
   # that summarizes the real CI jobs, fail-closed.
   ci-required:
     name: CI Required
-    needs: [test]
+    needs: [test, leak-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate CI result
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          LEAK_RESULT: ${{ needs.leak-check.result }}
         run: |
-          echo "test=$TEST_RESULT"
-          case "$TEST_RESULT" in
-            success|skipped) echo "CI Required: green"; exit 0 ;;
-            *) echo "::error::CI job result '$TEST_RESULT' is not green"; exit 1 ;;
-          esac
+          echo "test=$TEST_RESULT leak-check=$LEAK_RESULT"
+          for r in "$TEST_RESULT" "$LEAK_RESULT"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::CI job result '$r' is not green"; exit 1 ;;
+            esac
+          done
+          echo "CI Required: green"

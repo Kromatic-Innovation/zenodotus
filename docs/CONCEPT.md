@@ -61,3 +61,14 @@ Zenodotus is NOT made public or published to a registry until:
 
 Only then do the "flip to public" and "publish" issues unblock. Until then the
 repo stays private and the value hypothesis stays under test.
+
+## Leak self-check (belt-and-suspenders before the public flip)
+
+Independently of the prove-itself gates above, a CI **leak self-check**
+(`src/zenodotus/leakcheck.py`, run by the `leak-check` job) scans the whole repo
+for Kromatic-internal markers — local dev-machine home/project paths, internal
+network hostnames (`.internal`, `.corp` and similar), and any per-repo denylist
+entries (employee names, private repo slugs) added to `.zenodotus-leakcheck.txt`.
+See the module's `DEFAULT_DENYLIST` for the exact patterns. It runs on every PR
+and **must be green before the public flip** — it is a hard prerequisite for the
+flip-to-public issue. Run it locally with `python -m zenodotus.leakcheck .`.
