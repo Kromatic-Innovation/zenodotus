@@ -94,6 +94,10 @@ machine paths and private/internal network hostnames. Anything project-specific
 (personal names, private identifiers, internal service names) is supplied
 per-repo as a list of regex patterns in a denylist file, so the scanner needs no
 code change to tighten. See the module's `DEFAULT_DENYLIST` for the built-in
-patterns. It runs on every PR and **must be green before the public flip** — it
-is a hard prerequisite for the flip-to-public issue. Run it locally with
+patterns. That per-repo denylist file (`.zenodotus-leakcheck.txt`) is
+**optional** — the built-in defaults work without it, so this repo ships no such
+file. The `leak-check` job runs on **every PR** (it is aggregated into the
+required `ci-required` status check, so it must be green to merge) and
+**must be green before the public flip** — it is a hard prerequisite for the
+flip-to-public issue. Run it locally with
 `python -m zenodotus.leakcheck .`.
