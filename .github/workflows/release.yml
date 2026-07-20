@@ -1,0 +1,92 @@
+name: Release
+
+# Actions pinned to full commit SHAs (not mutable tags). A compromised
+# maintainer of any upstream action can retag `v4`/`release/v1`/etc. and
+# push malicious code into our next release, which our trusted-publishing
+# identity would then happily sign. SHA pins make action content
+# immutable — upgrades are explicit PRs, not silent.
+# Comment after each pin records the semver tag the SHA corresponded to
+# at pin time, for human-readable version tracking.
+#
+# Modeled directly on athenaeum's working release.yml (Kromatic-Innovation/
+# athenaeum, verified live via PyPI Trusted Publishing — no API token
+# anywhere). PyPI's Trusted Publishing supports registering a "pending
+# publisher" for a project name that has never been uploaded, so — unlike
+# npm — zenodotus does NOT need a manual bootstrap upload: register the
+# pending publisher on pypi.org first, then the first `git push origin
+# vX.Y.Z` publishes for real with zero stored secrets from day one.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write         # for PEP 740 build-provenance attestations
+      attestations: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          proj=$(python -c "import tomllib,sys; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME ($tag) does not match pyproject.toml version ($proj)"
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/zenodotus
+    permissions:
+      id-token: write          # OIDC exchange with PyPI + attestation signing
+      attestations: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      # pypa/gh-action-pypi-publish is a Docker container action, pinned by
+      # semver tag rather than SHA — pinning at a SHA causes the container
+      # pull to 404 ("manifest unknown"). pypa is a first-party trusted
+      # publisher and the OIDC exchange with PyPI verifies both the repo
+      # and the workflow ref at publish time, same tradeoff athenaeum's
+      # release.yml documents.
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
+        with:
+          attestations: true
