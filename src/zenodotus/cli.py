@@ -32,17 +32,21 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
     gate_results = gates.run_all(args.path, include_optional=args.include_optional)
     floor_ok = gates.floor_passed(gate_results)
 
+    shadow = getattr(args, "shadow", False)
     result: dict = {
         "path": args.path,
+        "shadow": shadow,
         "floor_passed": floor_ok,
         "gates": [dataclasses.asdict(g) for g in gate_results],
         "panel": None,
         "verdict": "no-go",
     }
 
-    if not floor_ok:
-        # Short-circuit: the panel never runs until the deterministic floor passes.
-        result["verdict"] = "no-go"
+    # Normally the panel short-circuits — it never runs until the deterministic
+    # floor passes. In SHADOW mode it runs regardless, so we accumulate panel
+    # discoveries on real release candidates even when the floor fails; the
+    # gate_results still dedupe findings a failing gate already caught.
+    if not (floor_ok or shadow):
         return result
 
     panel_result = panel.review(
@@ -59,7 +63,8 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         "discoveries": [dataclasses.asdict(d) for d in panel_result.discoveries],
         "log_path": str(args.log) if args.log else None,
     }
-    result["verdict"] = "go" if panel_result.consensus_go else "no-go"
+    # Verdict is floor AND panel consensus. It is advisory in shadow mode.
+    result["verdict"] = "go" if (floor_ok and panel_result.consensus_go) else "no-go"
     return result
 
 
@@ -86,7 +91,11 @@ def _print_human(result: dict, out=None) -> None:
             where = panel_data["log_path"] or "(not persisted)"
             print(f"  {n_disc} panel-only discoveries logged -> {where}", file=out)
 
-    print(f"\nVERDICT: {result['verdict'].upper()}", file=out)
+    if result.get("shadow"):
+        print(f"\nVERDICT: {result['verdict'].upper()}  (SHADOW — advisory only, "
+              f"build not blocked)", file=out)
+    else:
+        print(f"\nVERDICT: {result['verdict'].upper()}", file=out)
 
 
 def main(argv: list[str] | None = None, *, provider=None, now: str | None = None) -> int:
@@ -102,6 +111,11 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
                         help="Discovery-log path (JSONL). Use '' to disable. Default: discoveries.jsonl")
     review.add_argument("--include-optional", action="store_true",
                         help="Also run optional/heavier gates (e.g. OpenSSF Scorecard)")
+    review.add_argument("--shadow", action="store_true",
+                        help="Shadow mode: run the panel even if the floor fails, append "
+                             "discoveries to the log, and NEVER fail the build (exit 0). "
+                             "The recommended way to accumulate prove-itself evidence on "
+                             "live release candidates.")
     args = parser.parse_args(argv)
 
     if args.command == "review":
@@ -112,7 +126,9 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
             _print_human(result)
-        # non-zero exit on no-go so CI jobs fail closed
+        # Shadow mode never blocks the build; otherwise fail closed on no-go.
+        if args.shadow:
+            return 0
         return 0 if result["verdict"] == "go" else 1
     return 2
 
