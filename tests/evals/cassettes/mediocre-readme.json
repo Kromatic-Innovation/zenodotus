@@ -1,0 +1,43 @@
+{
+  "interactions": {
+    "119d3660a97bf27a": {
+      "response": {
+        "findings": [
+          {
+            "category": "usefulness",
+            "finding": "README promises 'Usage: See the tests' but ships no usage example",
+            "rationale": "an outsider cannot tell what the library does or how to call it",
+            "severity": "blocker"
+          }
+        ],
+        "go": false,
+        "rationale": "Not finished enough to publish."
+      },
+      "reviewer_id": "reviewer-2"
+    },
+    "399a3bf05f568fc1": {
+      "response": {
+        "findings": [],
+        "go": true,
+        "rationale": "Serviceable; installs and states its purpose."
+      },
+      "reviewer_id": "reviewer-1"
+    },
+    "551b290e6d9bf00d": {
+      "response": {
+        "findings": [
+          {
+            "category": "naming",
+            "finding": "the name 'core' is generic and says nothing about scope",
+            "rationale": "hard to discover or reason about",
+            "severity": "minor"
+          }
+        ],
+        "go": true,
+        "rationale": "Fine, minor nit."
+      },
+      "reviewer_id": "reviewer-3"
+    }
+  },
+  "version": 1
+}
