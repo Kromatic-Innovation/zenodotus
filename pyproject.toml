@@ -22,6 +22,9 @@ dev = ["pytest", "ruff", "pytest-cov"]
 # pip-installable deterministic-floor helpers (see docs/CONCEPT.md "Tools wired").
 # The Go/Ruby binaries (gitleaks, licensee, scorecard) install out of band.
 tools = ["pyroma>=4.2", "twine>=5.0"]
+# The default reviewer-panel provider (Anthropic Claude). Imported lazily, so
+# the package and its tests run without it; only a live panel run needs it.
+llm = ["anthropic>=0.40"]
 
 [project.scripts]
 zenodotus = "zenodotus.cli:main"
