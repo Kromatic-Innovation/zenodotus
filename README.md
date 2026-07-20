@@ -15,8 +15,10 @@ The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 > Zenodotus's panel (`panel.py`) is a standalone Python implementation, purpose-built
 > for release-gate judgment calls. It's conceptually related to (but does not
 > depend on) [**panelist**](https://github.com/Kromatic-Innovation/panelist) —
-> the org's general-purpose synthetic persona-panel engine (npm). See
-> zenodotus#36 for why they're kept separate rather than wired together.
+> the org's general-purpose synthetic persona-panel engine (npm). They're kept
+> separate by design; both satisfy a shared verdict shape instead of sharing
+> code — see [`docs/PANEL_VERDICT_SPEC.md`](docs/PANEL_VERDICT_SPEC.md)
+> (rationale: zenodotus#36).
 
 ## Status
 
