@@ -62,6 +62,28 @@ Zenodotus is NOT made public or published to a registry until:
 Only then do the "flip to public" and "publish" issues unblock. Until then the
 repo stays private and the value hypothesis stays under test.
 
+## Deterministic panel evals (offline, reproducible)
+
+The panel is LLM-backed, so it is non-deterministic and costs money — neither is
+acceptable in CI. A **record/replay cassette** layer (`src/zenodotus/cassette.py`)
+solves both: real provider responses are recorded once against a committed
+fixture repo (`tests/evals/fixtures/`) and replayed thereafter from a committed
+cassette (`tests/evals/cassettes/`). `CassetteProvider` implements the same
+`Provider` protocol as the live backend; each interaction is keyed by a stable
+hash of `(reviewer_id, gathered-context)`, so an unchanged fixture always
+replays exactly. CI runs the panel + evals **fully offline and reproducibly** —
+no API key, no network. This is the substrate the eval suite (fixtures + expected
+panel verdicts, the second prove-itself gate above) is built on.
+
+Refresh a cassette against the live API (run manually, needs a key):
+
+```python
+rec = CassetteProvider("tests/evals/cassettes/x.json", mode="record",
+                       inner=AnthropicProvider())
+panel.review("tests/evals/fixtures/x", provider=rec, at="...")
+rec.save()
+```
+
 ## Leak self-check (belt-and-suspenders before the public flip)
 
 Independently of the prove-itself gates above, a CI **leak self-check**
