@@ -88,9 +88,12 @@ rec.save()
 
 Independently of the prove-itself gates above, a CI **leak self-check**
 (`src/zenodotus/leakcheck.py`, run by the `leak-check` job) scans the whole repo
-for Kromatic-internal markers — local dev-machine home/project paths, internal
-network hostnames (`.internal`, `.corp` and similar), and any per-repo denylist
-entries (employee names, private repo slugs) added to `.zenodotus-leakcheck.txt`.
-See the module's `DEFAULT_DENYLIST` for the exact patterns. It runs on every PR
-and **must be green before the public flip** — it is a hard prerequisite for the
-flip-to-public issue. Run it locally with `python -m zenodotus.leakcheck .`.
+for strings that should never appear in a public tree. The built-in denylist
+targets *accidental* leaks that are generic to any codebase — local developer
+machine paths and private/internal network hostnames. Anything project-specific
+(personal names, private identifiers, internal service names) is supplied
+per-repo as a list of regex patterns in a denylist file, so the scanner needs no
+code change to tighten. See the module's `DEFAULT_DENYLIST` for the built-in
+patterns. It runs on every PR and **must be green before the public flip** — it
+is a hard prerequisite for the flip-to-public issue. Run it locally with
+`python -m zenodotus.leakcheck .`.
