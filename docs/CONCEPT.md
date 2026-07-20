@@ -14,6 +14,31 @@
    and to internal context, and renders a structured go/no-go with rationale.
 3. **Verdict** — deterministic floor AND panel consensus.
 
+### Tools wired into the deterministic floor (`src/zenodotus/gates.py`)
+
+Zenodotus **composes** these; it does not reimplement them. Each external tool
+is invoked as a subprocess and is **optional** — a gate whose tool is absent
+reports `skipped=True` (surfaced in the verdict) rather than crashing, so the
+floor degrades gracefully. `floor_passed()` treats skipped gates as
+non-blocking; only a non-skipped failing gate fails the floor.
+
+| Gate | Tool | Version wired | Invocation | Install |
+|------|------|---------------|-----------|---------|
+| `license_present` | pure-Python file check, then `licensee` (optional enrichment) | licensee ≥ 9.16 | `licensee detect --json <path>` | `gem install licensee` |
+| `community_files` | pure-Python presence check | n/a (no external tool) | README + CONTRIBUTING required; CODE_OF_CONDUCT + SECURITY recommended | built in |
+| `no_secrets` | Gitleaks | gitleaks ≥ 8.18 | `gitleaks detect --no-git --source <path> --redact --exit-code 1` | `brew install gitleaks` / [releases](https://github.com/gitleaks/gitleaks/releases) |
+| `packaging_ok` | pyroma | pyroma ≥ 4.2 | `pyroma --min 8 <path>` | `pip install "zenodotus[tools]"` |
+| `security_posture` (optional, off by default) | OpenSSF Scorecard | scorecard ≥ 5.0 | `scorecard --local=<path> --format=json` | [ossf/scorecard](https://github.com/ossf/scorecard) |
+
+`twine check` is complementary to `pyroma`: it validates a **built** `dist/`
+(`twine` ≥ 5.0, `pip install "zenodotus[tools]"`), so it runs at the CLI layer
+when packaging artifacts exist rather than against the bare source tree.
+
+The pip-installable helpers (`pyroma`, `twine`) ship via the `tools` extra:
+`pip install "zenodotus[tools]"`. The Go/Ruby binaries (`gitleaks`, `licensee`,
+`scorecard`) are installed out of band per the table above; without them the
+corresponding gate simply reports `skipped`.
+
 ## Discovery log (load-bearing)
 
 Every time the panel flags something the deterministic floor did NOT catch, it
