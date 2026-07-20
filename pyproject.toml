@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zenodotus"
-version = "0.0.0"
+version = "0.1.0"
 description = "OSS release-readiness gate: deterministic pre-gates + a no-context reviewer panel"
 readme = "README.md"
 license = { file = "LICENSE" }
