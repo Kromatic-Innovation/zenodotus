@@ -45,9 +45,11 @@ OSS *release-readiness* judgment.
   **explicitly credit the composed tools** for the deterministic floor. "Another
   OSS-readiness checklist" would be lost in a sea of them; the panel is the story.
 - The value claim is only credible if the panel **demonstrably catches things the
-  checklist misses.** That's why the `discovery_log` is load-bearing and why the
-  public flip + publish are gated on it (docs/CONCEPT.md). We do not publish on
-  vibes; we publish on logged evidence + evals.
+  checklist misses.** That is the role of the `discovery_log`, and the public
+  flip + publish were gated on it (docs/CONCEPT.md) — the bar was logged evidence
+  + evals, not vibes. Today that evidence is carried publicly by the committed
+  **eval suite** (`tests/evals/`, green in CI); the discovery log is the
+  mechanism by which a longer public track record accumulates as panel runs land.
 
 ## Audience
 Maintainers and orgs who publish open source and want a repeatable go/no-go gate
@@ -55,4 +57,4 @@ that goes beyond linters — especially anyone already running Scorecard/REUSE w
 feels the "is this actually ready for humans?" gap.
 
 ## Licensing
-**Apache-2.0.** See README and the licensing note in the repo issues.
+**Apache-2.0.** See the README and the `LICENSE` file.
