@@ -16,7 +16,8 @@ Today two such implementations exist:
 - **zenodotus** (this repo) — an OSS release-readiness gate (Python/PyPI).
   Domain: no-context reviewer judgment on release-worthiness.
 
-They are **separate implementations by deliberate decision** (zenodotus#36,
+They are **separate implementations by deliberate decision**
+([zenodotus#36](https://github.com/Kromatic-Innovation/zenodotus/issues/36),
 2026-07-20): zenodotus's pitch is a lightweight `pip`/`pipx`-installable gate,
 and making it shell out to a Node package at runtime would force every consumer
 to install Node just to run a review — for a *conceptual* overlap ("ask an LLM
@@ -53,7 +54,8 @@ Rules:
 2. **`warn` MUST NOT block.** A warning is advisory only. Any implementation
    that exposes an exit code **MUST** exit `0` for both `pass` and `warn`, and
    non-zero **only** for `block`. This is the load-bearing invariant: a gate
-   that hard-blocks on advisory findings erodes trust (zenodotus#31).
+   that hard-blocks on advisory findings erodes trust
+   ([zenodotus#31](https://github.com/Kromatic-Innovation/zenodotus/issues/31)).
 3. **`block` is reserved for genuine blockers.** The default posture is
    advisory; blocking is the exception, not the norm.
 
@@ -115,7 +117,8 @@ A conformant verdict is a JSON object with these fields:
 > The three-state projection is: `consensus_go == false` (a no-go or any
 > `blocker`) → `block`; `consensus_go == true` with findings present → `warn`;
 > clean → `pass`. Landing that projection in zenodotus's own CLI/verdict is
-> tracked by **zenodotus#31**; this spec defines the target that work satisfies.
+> tracked by **[zenodotus#31](https://github.com/Kromatic-Innovation/zenodotus/issues/31)**;
+> this spec defines the target that work satisfies.
 
 > **panelist mapping (informative).** panelist emits deal-killer cut-lists
 > across a cross-model panel. A deal-killer maps to a `blocker` severity
@@ -216,7 +219,8 @@ targets.
 
 ## Changelog
 
-- **1.0** (zenodotus#36) — initial spec: three-state `pass`/`warn`/`block`
+- **1.0** ([zenodotus#36](https://github.com/Kromatic-Innovation/zenodotus/issues/36)) — initial spec: three-state `pass`/`warn`/`block`
   verdict, severity→state mapping, verdict record shape, and the JSONL
   discovery-log format. Derived from zenodotus's existing `panel.py` /
-  `discovery_log.py` shapes and the three-state model of zenodotus#31.
+  `discovery_log.py` shapes and the three-state model of
+  [zenodotus#31](https://github.com/Kromatic-Innovation/zenodotus/issues/31).

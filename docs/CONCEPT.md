@@ -14,7 +14,9 @@
    and to internal context, and renders a structured go/no-go with rationale.
    This is a standalone Python implementation, not a dependency on
    [panelist](https://github.com/Kromatic-Innovation/panelist) (the org's
-   general-purpose persona-panel engine) — see zenodotus#36 for the rationale.
+   general-purpose persona-panel engine) — see
+   [zenodotus#36](https://github.com/Kromatic-Innovation/zenodotus/issues/36) for
+   the rationale.
    Both panels satisfy a shared verdict shape instead of sharing code; the
    spec is [`docs/PANEL_VERDICT_SPEC.md`](PANEL_VERDICT_SPEC.md).
 3. **Verdict** — deterministic floor AND panel consensus.
@@ -56,6 +58,12 @@ is appended to the discovery log with:
 - `severity` — blocker | major | minor
 - `reviewer` / `rationale`
 
+The discovery log is the mechanism, not yet a public track record: this repo
+ships `src/zenodotus/discovery_log.py` (the append/format machinery) but **does
+not yet commit a populated log artifact**. The panel's value is evidenced
+publicly today by the committed eval suite (below); the discovery log accrues a
+longer public record as panel runs land.
+
 ## Prove-itself protocol (historical gate — now the value hypothesis under test)
 
 The public flip and PyPI publish have **already happened** (zenodotus 0.1.0). The
@@ -79,8 +87,9 @@ python tests/evals/suite.py     # PASS/FAIL per case + GREEN/RED summary
 The suite runs fully offline via committed cassettes (no API key, no network),
 and it deliberately exercises **both** outcomes: a repo the panel correctly
 blocks (`mediocre-readme`) and a repo it correctly passes (`clean-complete` — a
-complete, well-licensed repo that the pre-#30 `gather_context` false-blocked;
-see issue #30). `tests/test_evalsuite.py` asserts the suite stays green and
+complete, well-licensed repo that `gather_context` false-blocked before
+[zenodotus#30](https://github.com/Kromatic-Innovation/zenodotus/issues/30)).
+`tests/test_evalsuite.py` asserts the suite stays green and
 reproducible in CI.
 
 The "flip to public" and "publish" work is complete; the value hypothesis — that
@@ -109,7 +118,7 @@ panel.review("tests/evals/fixtures/x", provider=rec, at="...")
 rec.save()
 ```
 
-## Leak self-check (belt-and-suspenders before the public flip)
+## Leak self-check (belt-and-suspenders that gated the public flip)
 
 Independently of the prove-itself gates above, a CI **leak self-check**
 (`src/zenodotus/leakcheck.py`, run by the `leak-check` job) scans the whole repo
@@ -122,7 +131,7 @@ code change to tighten. See the module's `DEFAULT_DENYLIST` for the built-in
 patterns. That per-repo denylist file (`.zenodotus-leakcheck.txt`) is
 **optional** — the built-in defaults work without it, so this repo ships no such
 file. The `leak-check` job runs on **every PR** (it is aggregated into the
-required `ci-required` status check, so it must be green to merge) and
-**must be green before the public flip** — it is a hard prerequisite for the
-flip-to-public issue. Run it locally with
+required `ci-required` status check, so it must be green to merge). It **was a
+hard prerequisite for the public flip** (now done) and keeps the public tree
+clean on every change since. Run it locally with
 `python -m zenodotus.leakcheck .`.
