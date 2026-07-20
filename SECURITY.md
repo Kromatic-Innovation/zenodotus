@@ -2,15 +2,17 @@
 
 ## Supported Versions
 
-Zenodotus is pre-1.0 and under active build-out (see `docs/CONCEPT.md`). Until a
-tagged `1.0` release, only the latest commit on the default branch (`develop`)
-receives security fixes. Older commits and any pre-release tags are not
-maintained.
+Zenodotus is published to PyPI (0.1.0) and pre-1.0, under active build-out (see
+`docs/CONCEPT.md`). Until a tagged `1.0` release, security fixes target the latest
+published release — the `main` branch it is cut from (via `promote-main.yml`) and
+the corresponding PyPI release — plus the `develop` integration branch that feeds
+it. Older releases and pre-release tags are not maintained.
 
-| Version            | Supported          |
-| ------------------ | ------------------ |
-| `develop` (latest) | :white_check_mark: |
-| everything else    | :x:                |
+| Version                      | Supported          |
+| ---------------------------- | ------------------ |
+| latest PyPI release / `main` | :white_check_mark: |
+| `develop` (integration)      | :white_check_mark: |
+| everything else              | :x:                |
 
 ## Reporting a Vulnerability
 

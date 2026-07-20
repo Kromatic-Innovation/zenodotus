@@ -30,10 +30,13 @@ The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 
 ## Status
 
-Core pipeline (deterministic gates → no-context reviewer panel → discovery log →
-verdict) is wired end to end via `zenodotus review`. Still pre-1.0 and under the
-"prove itself" milestone (docs/CONCEPT.md) — it stays private until the discovery
-log demonstrates the panel earns its keep.
+**Public and published** — `zenodotus` 0.1.0 is on PyPI (`pip install zenodotus`)
+and this repo is open source. The core pipeline (deterministic gates → no-context
+reviewer panel → discovery log → verdict) is wired end to end via
+`zenodotus review`. Still pre-1.0: the "prove itself" work (docs/CONCEPT.md) —
+accumulating panel-only discoveries and distilling them into the eval suite — now
+serves as ongoing validation that the panel earns its keep, not as a gate holding
+back a publication that has already happened.
 
 ## How it works
 
@@ -173,9 +176,9 @@ Install the pip-installable helpers with `pip install "zenodotus[tools]"`.
 
 Zenodotus only justifies its existence if the panel finds things the free
 deterministic tools do not. Every such finding is recorded to a structured
-**discovery log** (`discovery_log.py`). The repo does not graduate to public /
-published until the log proves the panel earns its keep — see
-[docs/CONCEPT.md](docs/CONCEPT.md) and the "prove itself" issues.
+**discovery log** (`discovery_log.py`). The log is the running evidence that the
+panel earns its keep — see [docs/CONCEPT.md](docs/CONCEPT.md) and the "prove
+itself" issues for how those discoveries feed the eval suite.
 
 ## License
 

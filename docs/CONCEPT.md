@@ -56,9 +56,12 @@ is appended to the discovery log with:
 - `severity` — blocker | major | minor
 - `reviewer` / `rationale`
 
-## Prove-itself gating (blocks the public flip + publish)
+## Prove-itself protocol (historical gate — now the value hypothesis under test)
 
-Zenodotus is NOT made public or published to a registry until:
+The public flip and PyPI publish have **already happened** (zenodotus 0.1.0). The
+"prove itself" protocol was originally the gate that held them back; it is kept
+here as the framing for *why the discovery-log and eval-suite work still matters*
+now that publication is done. The two conditions were:
 1. The discovery log contains a meaningful set of **panel-only** findings
    (things the deterministic floor missed) — evidence the panel adds value.
 2. Those logged discoveries are distilled into a small **eval suite** (fixtures
@@ -66,8 +69,8 @@ Zenodotus is NOT made public or published to a registry until:
 
 The eval suite lives in [`tests/evals/suite.py`](../tests/evals/suite.py): a
 manifest of discovery-derived cases (each a fixture repo + its expected panel
-verdict) plus a runner. It is the artifact the flip decision references — the
-flip is gated on it being green:
+verdict) plus a runner. It remains the artifact that evidences the panel's value,
+and it is enforced green in CI:
 
 ```
 python tests/evals/suite.py     # PASS/FAIL per case + GREEN/RED summary
@@ -80,8 +83,9 @@ complete, well-licensed repo that the pre-#30 `gather_context` false-blocked;
 see issue #30). `tests/test_evalsuite.py` asserts the suite stays green and
 reproducible in CI.
 
-Only then do the "flip to public" and "publish" issues unblock. Until then the
-repo stays private and the value hypothesis stays under test.
+The "flip to public" and "publish" work is complete; the value hypothesis — that
+the panel earns its keep — stays under continuous test via the discovery log and
+the eval suite.
 
 ## Deterministic panel evals (offline, reproducible)
 
