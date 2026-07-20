@@ -59,6 +59,22 @@ Zenodotus is NOT made public or published to a registry until:
 2. Those logged discoveries are distilled into a small **eval suite** (fixtures
    + expected panel verdicts) that the panel passes reproducibly.
 
+The eval suite lives in [`tests/evals/suite.py`](../tests/evals/suite.py): a
+manifest of discovery-derived cases (each a fixture repo + its expected panel
+verdict) plus a runner. It is the artifact the flip decision references — the
+flip is gated on it being green:
+
+```
+python tests/evals/suite.py     # PASS/FAIL per case + GREEN/RED summary
+```
+
+The suite runs fully offline via committed cassettes (no API key, no network),
+and it deliberately exercises **both** outcomes: a repo the panel correctly
+blocks (`mediocre-readme`) and a repo it correctly passes (`clean-complete` — a
+complete, well-licensed repo that the pre-#30 `gather_context` false-blocked;
+see issue #30). `tests/test_evalsuite.py` asserts the suite stays green and
+reproducible in CI.
+
 Only then do the "flip to public" and "publish" issues unblock. Until then the
 repo stays private and the value hypothesis stays under test.
 
