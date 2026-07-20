@@ -1,6 +1,14 @@
 # Zenodotus
 
+![zenodotus: three judge archetypes — developer, compliance officer, security reviewer — stamping verdicts at a checkpoint gate](docs/assets/hero.png)
+
 **An OSS release-readiness gate: deterministic pre-gates + a no-context reviewer panel.**
+
+**Use case:** you're about to open-source a repo and want more than a green CI badge before you flip it public — something that catches the stuff linters structurally can't: leaked internal context, a README that only makes sense to people who already work here, scope creep, an unfinished feature dressed up as done.
+
+**Differentiator:** every "is this OSS-ready" tool on the market is a checklist — license present, CoC present, no secrets. Zenodotus composes those (via existing tools: Scorecard, REUSE, Gitleaks, pyroma) as a hard floor, then adds what checklists can't do: independent, no-context reviewers who render a judgment call, not a checkbox. Verdicts get logged; every panel-only finding (something the deterministic floor missed) is the evidence the panel earns its keep.
+
+**Why:** a repo can pass every automated check and still be unreadable, still leak org-internal assumptions, still not actually be finished — because none of that is mechanically checkable. Zenodotus exists because "the linters are green" and "this is actually ready for strangers" are different questions, and only one of them has been getting asked.
 
 Most "is this repo open-source ready?" checks are mechanical and already solved
 by great tools (OpenSSF Scorecard, REUSE, Gitleaks, pyroma, twine, GitHub
