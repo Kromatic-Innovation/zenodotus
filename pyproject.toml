@@ -9,13 +9,21 @@ description = "OSS release-readiness gate: deterministic pre-gates + a no-contex
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
+authors = [{ name = "Kromatic", email = "oss@kromatic.com" }]
 keywords = ["open-source", "release", "readiness", "review", "gate", "llm"]
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Kromatic-Innovation/zenodotus"
+Repository = "https://github.com/Kromatic-Innovation/zenodotus"
+Issues = "https://github.com/Kromatic-Innovation/zenodotus/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "pytest-cov"]
