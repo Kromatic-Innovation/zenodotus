@@ -50,8 +50,23 @@ python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
 
 Options: `--json` (machine-readable output), `--reviewers N` (panel size, default 3),
 `--log PATH` (discovery-log JSONL path; `--log ''` disables), `--include-optional`
-(also run heavier optional gates such as OpenSSF Scorecard). Exit code is `0` on go,
-non-zero on no-go.
+(also run heavier optional gates such as OpenSSF Scorecard), `--shadow` (see below).
+Exit code is `0` on go, non-zero on no-go.
+
+### Shadow mode (recommended for accumulating evidence)
+
+```bash
+zenodotus review . --shadow --log discoveries.jsonl
+```
+
+`--shadow` runs Zenodotus on real release candidates **without blocking** them:
+the reviewer panel runs even when the deterministic floor fails, every panel-only
+finding is appended to the discovery log, and the process **always exits 0** — the
+verdict is reported but advisory. This is the **recommended way to accumulate
+"prove-itself" evidence** on live RCs (docs/CONCEPT.md): gather a meaningful set of
+panel-only discoveries safely, before Zenodotus ever gates anything. Add it as a
+non-required CI step first, review the accumulated log, and only promote it to a
+blocking gate (drop `--shadow`) once the evidence justifies it.
 
 ### Deployable routine (container / CI job)
 

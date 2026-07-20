@@ -108,6 +108,60 @@ def test_json_output_is_parseable(tmp_path, capsys):
     assert {g["name"] for g in payload["gates"]} >= {"license_present", "community_files"}
 
 
+# --- shadow mode (#9) -------------------------------------------------------- #
+
+def test_shadow_never_fails_even_on_panel_nogo(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    log = tmp_path / "discoveries.jsonl"
+    code = main(["review", str(d), "--shadow", "--reviewers", "2", "--log", str(log)],
+                provider=StubProvider(_NOGO), now=NOW)
+    assert code == 0  # shadow mode never blocks the build
+    out = capsys.readouterr().out
+    assert "SHADOW" in out
+    assert "VERDICT: NO-GO" in out  # verdict still reported, just advisory
+    rows = load(log)
+    assert len(rows) == 2  # discoveries still accumulated
+
+
+def test_shadow_runs_panel_even_when_floor_fails(tmp_path):
+    # a floor-failing RC still gets panel evidence in shadow mode
+    d = tmp_path / "nolicense"
+    d.mkdir()
+    (d / "README.md").write_text("# x\n")
+    (d / "CONTRIBUTING.md").write_text("# c\n")  # no LICENSE => floor fails
+    log = tmp_path / "d.jsonl"
+    code = main(["review", str(d), "--shadow", "--reviewers", "1", "--log", str(log)],
+                provider=StubProvider(_NOGO), now=NOW)
+    assert code == 0
+    rows = load(log)
+    assert len(rows) == 1  # panel ran despite floor failure; evidence logged
+
+
+def test_shadow_json_marks_shadow_and_forces_exit_zero(tmp_path, capsys):
+    d = tmp_path / "nolicense"
+    d.mkdir()
+    (d / "README.md").write_text("# x\n")
+    code = main(["review", str(d), "--shadow", "--json", "--reviewers", "1", "--log", ""],
+                provider=StubProvider(_NOGO), now=NOW)
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shadow"] is True
+    assert payload["floor_passed"] is False
+    assert payload["panel"] is not None  # panel ran in shadow mode
+    assert payload["verdict"] == "no-go"
+
+
+def test_non_shadow_still_short_circuits(tmp_path):
+    # regression: without --shadow, a floor-fail still skips the panel
+    d = tmp_path / "nolicense"
+    d.mkdir()
+    (d / "README.md").write_text("# x\n")
+    log = tmp_path / "d.jsonl"
+    code = main(["review", str(d), "--log", str(log)], provider=StubProvider(_NOGO), now=NOW)
+    assert code == 1
+    assert not log.exists() or load(log) == []
+
+
 def test_json_floor_fail_has_null_panel(tmp_path, capsys):
     d = tmp_path / "bare"
     d.mkdir()
