@@ -1,6 +1,14 @@
 {
   "interactions": {
-    "119d3660a97bf27a": {
+    "4196232474b6f19f": {
+      "response": {
+        "findings": [],
+        "go": true,
+        "rationale": "Serviceable; installs and states its purpose."
+      },
+      "reviewer_id": "reviewer-1"
+    },
+    "4ffa85392a69202b": {
       "response": {
         "findings": [
           {
@@ -15,15 +23,7 @@
       },
       "reviewer_id": "reviewer-2"
     },
-    "399a3bf05f568fc1": {
-      "response": {
-        "findings": [],
-        "go": true,
-        "rationale": "Serviceable; installs and states its purpose."
-      },
-      "reviewer_id": "reviewer-1"
-    },
-    "551b290e6d9bf00d": {
+    "5391c5433e590743": {
       "response": {
         "findings": [
           {

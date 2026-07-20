@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
@@ -148,31 +150,103 @@ class AnthropicProvider:
 # --- context gathering ------------------------------------------------------- #
 
 # Public files an outsider would actually read. Bounded so context stays small.
+# The LICENSE body is included (issue #30 defect 3): omitting it makes reviewers
+# raise license-mismatch/uncertainty findings they could otherwise resolve.
 _CONTEXT_FILES = (
     "README.md", "README.rst", "README",
+    "LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING",
     "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "docs/CONCEPT.md", "docs/POSITIONING.md",
     "pyproject.toml", "setup.py", "setup.cfg",
 )
-_MAX_FILE_CHARS = 8000
+# Generous per-file cap (issue #30 defect 1). The old 8,000-char cap sliced long
+# but complete READMEs mid-word, so reviewers mis-flagged them as "unfinished".
+# We keep a bound so context stays sane, but raise it well past any real README
+# and — if we ever do hit it — annotate explicitly that the source is complete.
+_MAX_FILE_CHARS = 200_000
+
+# Directories/files that are never part of a shipped artifact. Used ONLY as a
+# fallback filter when the target is not a git work tree (so we can't ask git
+# which files are tracked); mirrors common .gitignore entries. Inside a git repo
+# we defer to ``git ls-files`` instead, which is authoritative.
+_UNTRACKED_DIRS = frozenset({
+    ".git", ".venv", "venv", "env", ".env", "__pycache__", ".pytest_cache",
+    ".ruff_cache", ".mypy_cache", ".tox", "node_modules", "dist", "build",
+    ".eggs", ".agents", ".codex", ".tmp", "tmp", "coverage", "htmlcov",
+    ".idea", ".vscode", ".DS_Store",
+})
+_UNTRACKED_FILES = frozenset({".DS_Store"})
+
+
+def _which(tool: str) -> str | None:  # injectable seam, mirrors gates.py
+    return shutil.which(tool)
+
+
+def _run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def _tracked_files(root: Path) -> list[str] | None:
+    """Tracked files under ``root`` (relative posix paths), or ``None`` if not git.
+
+    Reflects what would actually ship — respecting ``.gitignore`` — instead of the
+    raw working tree, so untracked/generated artifacts (``.venv/``, ``dist/``,
+    ``.DS_Store``, ``.agents/``) never leak into the review context and trigger
+    false "internal files leaked" blockers (issue #30 defect 2).
+    """
+    if _which("git") is None:
+        return None
+    inside = _run(["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"])
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+    proc = _run(["git", "-C", str(root), "ls-files", "-z"])
+    if proc.returncode != 0:
+        return None
+    return [f for f in proc.stdout.split("\0") if f]
+
+
+def _walk_files(root: Path) -> list[str]:
+    """Fallback tree for a non-git target (e.g. an extracted package artifact).
+
+    Filters obvious untracked/generated noise by name so a stray ``dist/`` or
+    ``.venv/`` in a plain directory still doesn't read as shipped content.
+    """
+    out: list[str] = []
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root)
+        if set(rel.parts) & _UNTRACKED_DIRS:
+            continue
+        if rel.name in _UNTRACKED_FILES:
+            continue
+        out.append(rel.as_posix())
+    return out
 
 
 def gather_context(path: str) -> str:
     """Collect the repo's public-facing files into one bounded review context."""
     root = Path(path)
     parts: list[str] = []
-    # A file tree gives reviewers a sense of scope.
-    tree = sorted(
-        str(p.relative_to(root))
-        for p in root.rglob("*")
-        if p.is_file() and ".git" not in p.parts
-    )
+    # A file tree gives reviewers a sense of scope. Prefer git-tracked files so
+    # untracked working-tree noise never presents as shipped content.
+    tracked = _tracked_files(root)
+    files = tracked if tracked is not None else _walk_files(root)
+    tree = sorted(files)
     parts.append("## File tree\n" + "\n".join(tree[:200]))
 
     for rel in _CONTEXT_FILES:
         fp = root / rel
         if fp.is_file():
-            body = fp.read_text(encoding="utf-8", errors="replace")[:_MAX_FILE_CHARS]
+            raw = fp.read_text(encoding="utf-8", errors="replace")
+            body = raw[:_MAX_FILE_CHARS]
+            if len(raw) > _MAX_FILE_CHARS:
+                omitted = len(raw) - _MAX_FILE_CHARS
+                body += (
+                    f"\n\n[zenodotus: {omitted} more character(s) omitted here to keep "
+                    "the review context bounded — the source file is COMPLETE, not "
+                    "truncated or unfinished. Do not report it as incomplete.]"
+                )
             parts.append(f"## {rel}\n{body}")
     return "\n\n".join(parts)
 
