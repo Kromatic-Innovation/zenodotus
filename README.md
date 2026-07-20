@@ -36,6 +36,54 @@ The command short-circuits: the panel only runs once the deterministic floor
 passes. The final verdict is `floor AND panel-consensus`, and the process exits
 non-zero on a no-go so it fails closed in CI.
 
+## Prerequisites & setup
+
+Zenodotus **composes** existing tools. Some ship with the package; others are
+separate binaries you install out of band. **Every external tool is optional:
+if it is absent, its gate reports `skipped` and the floor still runs** — see
+[Skipped is not passed](#skipped-is-not-passed) below for why that matters.
+
+### 1. Install the package (+ optional extras)
+
+```bash
+pip install "zenodotus[llm,tools]"   # or: pipx install "zenodotus[llm,tools]"
+```
+
+| Extra    | Provides                                             | Needed for |
+| -------- | --------------------------------------------------- | ---------- |
+| _(base)_ | the `zenodotus` CLI and deterministic gates         | always     |
+| `llm`    | the default reviewer provider (Anthropic Claude)    | a live panel run |
+| `tools`  | `pyroma` + `twine` (the `packaging_ok` gate)        | packaging checks |
+
+A live panel run also needs an API key: `export ANTHROPIC_API_KEY=sk-...`.
+
+### 2. Install the out-of-band binaries (optional)
+
+These are Go/Ruby tools that are **not** pip-installable. Install only the ones
+whose gate you want to run:
+
+| Binary      | Gate it enables      | Install                                             | Skipped if absent |
+| ----------- | -------------------- | --------------------------------------------------- | ----------------- |
+| `gitleaks`  | `no_secrets`         | `brew install gitleaks` / [releases][gl]            | secret scan does not run |
+| `licensee`  | `license_present` (enrichment only — a pure-Python check still runs) | `gem install licensee` | license enrichment does not run |
+| `scorecard` | `security_posture` (optional, off unless `--include-optional`) | [ossf/scorecard][sc] | posture check does not run |
+
+[gl]: https://github.com/gitleaks/gitleaks/releases
+[sc]: https://github.com/ossf/scorecard
+
+The exact versions and invocations are documented in
+[docs/CONCEPT.md → Tools wired](docs/CONCEPT.md#tools-wired-into-the-deterministic-floor-srczenodotusgatespy).
+
+### Skipped is not passed
+
+A gate whose tool is absent reports **`skipped`, which is neither `passed` nor
+`failed`** — the check simply did not run. `floor_passed()` treats a skipped
+gate as non-blocking (so a missing optional tool never fails your build), which
+means a green-looking verdict can still hide checks that never executed. If you
+need a specific gate enforced, install its tool above and confirm the gate
+reports `passed` (not `skipped`) — `zenodotus review . --json` lists each gate's
+status explicitly.
+
 ## Usage
 
 ### Local
@@ -48,9 +96,14 @@ zenodotus review /path/to/repo --json              # machine-readable
 python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
 ```
 
-Options: `--json` (machine-readable output), `--reviewers N` (panel size, default 3),
-`--log PATH` (discovery-log JSONL path; `--log ''` disables), `--include-optional`
-(also run heavier optional gates such as OpenSSF Scorecard), `--shadow` (see below).
+Options:
+
+- `--json` — machine-readable output (includes each gate's `skipped`/`passed` status).
+- `--reviewers N` — panel size (default 3).
+- `--log PATH` — discovery-log JSONL path; `--log ''` disables logging.
+- `--include-optional` — also run heavier optional gates such as OpenSSF Scorecard.
+- `--shadow` — advisory, non-blocking run (see [Shadow mode](#shadow-mode-recommended-for-accumulating-evidence) below).
+
 Exit code is `0` on go, non-zero on no-go.
 
 ### Shadow mode (recommended for accumulating evidence)
