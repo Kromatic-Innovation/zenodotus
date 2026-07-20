@@ -33,6 +33,12 @@ zenodotus review <path-or-repo>
 Runs **locally** (`pipx install zenodotus` / `python -m zenodotus`) or as a
 **deployable routine** (container / CI job).
 
+The deterministic floor (`gates.py`) composes external tools as optional
+subprocesses and degrades gracefully when one is absent. The exact tools,
+pinned versions, and invocations are documented in
+[docs/CONCEPT.md → Tools wired](docs/CONCEPT.md#tools-wired-into-the-deterministic-floor-srczenodotusgatespy).
+Install the pip-installable helpers with `pip install "zenodotus[tools]"`.
+
 ## Why the discovery log matters
 
 Zenodotus only justifies its existence if the panel finds things the free
