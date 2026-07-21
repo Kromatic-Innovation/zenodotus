@@ -8,9 +8,9 @@ name: Release
 # Comment after each pin records the semver tag the SHA corresponded to
 # at pin time, for human-readable version tracking.
 #
-# Modeled directly on athenaeum's working release.yml (Kromatic-Innovation/
-# athenaeum, verified live via PyPI Trusted Publishing — no API token
-# anywhere). PyPI's Trusted Publishing supports registering a "pending
+# Modeled directly on a sibling repo's working release.yml (verified live
+# via PyPI Trusted Publishing — no API token anywhere). PyPI's Trusted
+# Publishing supports registering a "pending
 # publisher" for a project name that has never been uploaded, so — unlike
 # npm — zenodotus does NOT need a manual bootstrap upload: register the
 # pending publisher on pypi.org first, then the first `git push origin

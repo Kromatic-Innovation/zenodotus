@@ -1,4 +1,4 @@
-"""CI leak self-check — scan a repo for Kromatic-internal content before a public flip.
+"""CI leak self-check — scan a repo for org-internal content before a public flip.
 
 Belt-and-suspenders on the "no sensitive information" requirement (repo issue
 #11, gating the public-flip issue #6): greps every text file for a configurable
