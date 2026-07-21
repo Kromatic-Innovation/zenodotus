@@ -20,7 +20,7 @@ jobs:
       - run: ruff check .
       - run: python -m pytest -q
 
-  # Leak self-check (issue #11): scan the repo for Kromatic-internal markers.
+  # Leak self-check (issue #11): scan the repo for org-internal markers.
   # MUST pass before the public flip (issue #6) — this is that prerequisite.
   leak-check:
     name: Leak self-check

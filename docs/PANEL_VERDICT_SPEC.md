@@ -1,7 +1,7 @@
 # Shared persona-panel verdict spec
 
 **Status:** normative · **Version:** 1.0 · **Applies to:** any synthetic
-reviewer/persona panel in the Kromatic org, in any language.
+reviewer/persona panel in your org, in any language.
 
 This document specifies a **shared verdict shape** — a three-state verdict
 (`pass` / `warn` / `block`) plus a discovery-log record format — that

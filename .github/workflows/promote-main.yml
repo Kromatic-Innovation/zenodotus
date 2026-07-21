@@ -3,8 +3,8 @@ name: Promote Main
 # Deliberate, human-triggered develop -> main promotion. zenodotus is a 2-tier
 # PyPI library: develop is integration, main is the ref that release tags are
 # cut from (see release.yml). There is no staging env here — mirrors the
-# pattern in Kromatic-Innovation/ideate-core and Kromatic-Innovation/panelist,
-# adapted for this repo's `CI Required` aggregate check (.github/workflows/ci.yml).
+# pattern used by this org's other npm OSS repos, adapted for this repo's
+# `CI Required` aggregate check (.github/workflows/ci.yml).
 
 on:
   workflow_dispatch:
