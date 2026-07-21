@@ -2,7 +2,7 @@
 
 ![zenodotus: three judge archetypes — developer, compliance officer, security reviewer — stamping verdicts at a checkpoint gate](docs/assets/hero.png)
 
-**An OSS release-readiness gate: deterministic pre-gates + a no-context reviewer panel.**
+**An OSS release-readiness review gate: deterministic pre-gates + a no-context reviewer panel.** It renders a three-state verdict — **pass / warn / block** — where warnings are advisory and **never block** (exit 0). Blocking is reserved for genuine blockers and is opt-in per the maintainer's trust level; the default posture is advisory.
 
 **Use case:** you're about to open-source a repo and want more than a green CI badge before you flip it public — something that catches the stuff linters structurally can't: leaked internal context, a README that only makes sense to people who already work here, scope creep, an unfinished feature dressed up as done.
 
@@ -45,15 +45,29 @@ zenodotus review <path-or-repo>
   ├─ 1. Deterministic pre-gates (must all pass)  ── gates.py
   │      license · community files · secrets · packaging · security posture
   ├─ 2. No-context reviewer panel (judgment)      ── panel.py
-  │      N independent reviewers, each blind to the others, render go/no-go
-  └─ 3. Discovery log + verdict                    ── discovery_log.py
+  │      N independent reviewers, each blind to the others, raise
+  │      severity-graded findings (blocker / major / minor)
+  └─ 3. Discovery log + three-state verdict        ── discovery_log.py
          every panel-only finding (something the deterministic gates MISSED)
          is logged — this is how the panel earns its keep.
 ```
 
 The command short-circuits: the panel only runs once the deterministic floor
-passes. The final verdict is `floor AND panel-consensus`, and the process exits
-non-zero on a no-go so it fails closed in CI.
+passes. It then renders a **three-state verdict** — `pass` / `warn` / `block`
+(see [`docs/PANEL_VERDICT_SPEC.md`](docs/PANEL_VERDICT_SPEC.md)):
+
+- **`pass`** — nothing to act on. Exit `0`.
+- **`warn`** — advisory findings exist, but none is a blocker. **Warnings never
+  block** — exit `0`. This is the default posture: panel findings warn, they do
+  not fail your build.
+- **`block`** — a genuine blocker. Exit non-zero. A panel finding only escalates
+  to `block` when you opt in with `--fail-on blocker`; the deterministic floor
+  (a missing license, a leaked secret) is a hard gate and always blocks.
+
+So the panel is a **review gate**, not a hard merge gate: it complements linters
+with judgment-level review and, by default, advises rather than fails closed.
+Blocking remains available (`--fail-on blocker`) but is reserved for genuine
+blockers, opt-in per the maintainer's trust level.
 
 ## Prerequisites & setup
 
@@ -117,13 +131,21 @@ python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
 
 Options:
 
-- `--json` — machine-readable output (includes each gate's `skipped`/`passed` status).
+- `--json` — machine-readable output (includes each gate's `skipped`/`passed` status, the three-state `verdict`, and the raw `panel_verdict` before policy).
 - `--reviewers N` — panel size (default 3).
 - `--log PATH` — discovery-log JSONL path; `--log ''` disables logging.
 - `--include-optional` — also run heavier optional gates such as OpenSSF Scorecard.
+- `--fail-on {blocker,never}` — block threshold for **panel** findings. `never`
+  (default) keeps panel findings advisory (they `warn`, never block); `blocker`
+  makes a blocker-severity finding or a reviewer no-go exit non-zero. The
+  deterministic floor blocks regardless.
 - `--shadow` — advisory, non-blocking run (see [Shadow mode](#shadow-mode-recommended-for-accumulating-evidence) below).
 
-Exit code is `0` on go, non-zero on no-go.
+Exit code follows the three-state verdict: `0` for `pass` and `warn` (warnings
+never block), non-zero only for `block`. By default (`--fail-on never`) a panel
+finding never blocks — you opt into blocking with `--fail-on blocker`. The
+deterministic floor (missing license, leaked secret) is a hard gate and blocks
+regardless.
 
 ### Shadow mode (recommended for accumulating evidence)
 
@@ -134,11 +156,13 @@ zenodotus review . --shadow --log discoveries.jsonl
 `--shadow` runs Zenodotus on real release candidates **without blocking** them:
 the reviewer panel runs even when the deterministic floor fails, every panel-only
 finding is appended to the discovery log, and the process **always exits 0** — the
-verdict is reported but advisory. This is the **recommended way to accumulate
-"prove-itself" evidence** on live RCs (docs/CONCEPT.md): gather a meaningful set of
-panel-only discoveries safely, before Zenodotus ever gates anything. Add it as a
-non-required CI step first, review the accumulated log, and only promote it to a
-blocking gate (drop `--shadow`) once the evidence justifies it.
+verdict is reported (as an advisory `warn`) but never blocks. Shadow is folded
+into the three-state model as **warn-only**: any would-be `block` is presented as
+`warn`. This is the **recommended way to accumulate "prove-itself" evidence** on
+live RCs (docs/CONCEPT.md): gather a meaningful set of panel-only discoveries
+safely, before Zenodotus blocks anything. Add it as a non-required CI step first,
+review the accumulated log, and — once the evidence justifies it — tighten to a
+blocking panel by dropping `--shadow` **and** setting `--fail-on blocker`.
 
 ### Deployable routine (container / CI job)
 
@@ -155,14 +179,18 @@ ENTRYPOINT ["zenodotus", "review"]
 docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/repo" zenodotus /repo --json
 ```
 
-As a GitHub Actions step (fails the job on a no-go via the non-zero exit):
+As a GitHub Actions step. By default the panel is **advisory** — it surfaces a
+verdict and discoveries but exits `0` on `warn`, so it never fails the job on a
+panel finding (only the deterministic floor blocks). Add `--fail-on blocker` when
+you want a blocker-severity finding (or a reviewer no-go) to fail the job:
 
 ```yaml
-- name: Zenodotus release-readiness gate
+- name: Zenodotus release-readiness review
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   run: |
     pip install "zenodotus[llm,tools]"
+    # advisory by default; add --fail-on blocker to make panel blockers fail CI
     zenodotus review . --json --log discoveries.jsonl
 ```
 

@@ -11,7 +11,8 @@
    - Security posture — OpenSSF Scorecard (optional, heavier)
 2. **Judgment panel** — N independent no-context reviewers (default provider:
    Anthropic Claude; provider-agnostic). Each reviewer is blind to the others
-   and to internal context, and renders a structured go/no-go with rationale.
+   and to internal context, and raises severity-graded findings (blocker /
+   major / minor) with rationale.
    This is a standalone Python implementation, not a dependency on
    [panelist](https://github.com/Kromatic-Innovation/panelist) (the org's
    general-purpose persona-panel engine) — see
@@ -19,7 +20,16 @@
    the rationale.
    Both panels satisfy a shared verdict shape instead of sharing code; the
    spec is [`docs/PANEL_VERDICT_SPEC.md`](PANEL_VERDICT_SPEC.md).
-3. **Verdict** — deterministic floor AND panel consensus.
+3. **Three-state verdict** — `pass` / `warn` / `block`
+   ([`docs/PANEL_VERDICT_SPEC.md`](PANEL_VERDICT_SPEC.md)). Severity maps to
+   state: a blocker (or a reviewer no-go) → `block`; `major`/`minor` → `warn`;
+   nothing → `pass`. **Warnings are advisory and never block** (exit 0); only a
+   `block` exits non-zero. The default posture is advisory — a panel finding
+   blocks only when the maintainer opts in with `--fail-on blocker` — while the
+   deterministic floor stays a hard gate that blocks regardless. This is a
+   **review gate that can block, warn, or pass**, not a hard merge gate: it
+   complements linters with judgment-level review rather than failing closed on
+   advisory findings.
 
 ### Tools wired into the deterministic floor (`src/zenodotus/gates.py`)
 
