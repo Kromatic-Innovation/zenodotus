@@ -1,7 +1,7 @@
 # Positioning
 
 ## One line
-**Zenodotus is a no-context reviewer *panel* that gates open-source releases — not another readiness checklist.**
+**Zenodotus is a no-context reviewer *panel* that reviews open-source releases — a three-state review gate (block / warn / pass) where warnings are advisory — not another readiness checklist.**
 
 ## The honest landscape
 The deterministic side of "is this repo OSS-ready?" is a solved commodity. Free,
@@ -52,9 +52,11 @@ OSS *release-readiness* judgment.
   mechanism by which a longer public track record accumulates as panel runs land.
 
 ## Audience
-Maintainers and orgs who publish open source and want a repeatable go/no-go gate
-that goes beyond linters — especially anyone already running Scorecard/REUSE who
-feels the "is this actually ready for humans?" gap.
+Maintainers and orgs who publish open source and want a repeatable **review gate**
+(block / warn / pass) that goes beyond linters — especially anyone already running
+Scorecard/REUSE who feels the "is this actually ready for humans?" gap. It advises
+by default (warnings never block) and can be tightened to block on genuine
+blockers, so it earns trust as a reviewer before it ever gates a merge.
 
 ## Licensing
 **Apache-2.0.** See the README and the `LICENSE` file.

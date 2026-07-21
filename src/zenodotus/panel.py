@@ -49,9 +49,20 @@ cannot:
 - usefulness  — is this actually useful and finished enough to exist publicly?
 - doc-quality — are the docs accurate, complete, and honest?
 
-Return a go/no-go verdict. Any BLOCKER finding means no-go. Report each finding
-with a category (one of: coherence, naming, scope, leakage, usefulness,
-doc-quality, other) and a severity (blocker, major, minor)."""
+Grade every finding by severity, and reserve blocking for genuine blockers:
+
+- blocker — a real release-blocker: something that would genuinely embarrass or
+            harm an outsider (e.g. leaked internal context, a feature promised
+            but not shipped, a README an outsider truly cannot follow). Blocking
+            is the exception, not the default posture.
+- major / minor — advisory findings worth raising that should WARN, not block
+            (coherence nits, naming/scope observations, doc-quality gaps).
+
+Return a `go` boolean plus severity-graded findings. Set `go: false` ONLY if you
+would genuinely block the release (a blocker-level problem); advisory findings
+alone keep `go: true` and simply warn. Report each finding with a category (one
+of: coherence, naming, scope, leakage, usefulness, doc-quality, other) and a
+severity (blocker, major, minor)."""
 
 # JSON schema the provider is asked to satisfy (structured output).
 VERDICT_SCHEMA: dict = {
@@ -263,6 +274,34 @@ def any_blocker_no_go(verdicts: list[ReviewerVerdict]) -> bool:
         if any(f.get("severity") == "blocker" for f in v.findings):
             return False
     return True
+
+
+# --- three-state verdict projection ------------------------------------------ #
+
+# The shared three-state verdict vocabulary (docs/PANEL_VERDICT_SPEC.md §1).
+PASS, WARN, BLOCK = "pass", "warn", "block"
+
+
+def panel_verdict(review: "PanelReview") -> str:
+    """Project a completed panel run onto the three-state verdict `pass|warn|block`.
+
+    This is the panel's own contribution to the aggregate verdict, before any
+    caller-side policy (the deterministic floor, `--fail-on`, or shadow mode) is
+    applied. It implements the severity→state mapping of
+    ``docs/PANEL_VERDICT_SPEC.md`` §1.1/§1.2:
+
+    - ``consensus_go is False`` (a reviewer no-go OR any blocker-severity finding
+      — the two the default consensus collapses) → ``block``. Per §1.1 a
+      per-reviewer no-go is treated as equivalent to a blocker for the aggregate.
+    - ``consensus_go is True`` but advisory findings exist (``major``/``minor``)
+      → ``warn``.
+    - No findings at all → ``pass``.
+    """
+    if not review.consensus_go:
+        return BLOCK
+    if any(v.findings for v in review.verdicts):
+        return WARN
+    return PASS
 
 
 # --- deterministic dedupe ---------------------------------------------------- #

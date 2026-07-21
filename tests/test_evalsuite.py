@@ -31,11 +31,34 @@ def test_eval_suite_covers_both_a_block_and_a_pass():
     assert by_name["clean-complete"].expect_go is True
 
 
+def test_eval_suite_covers_all_three_verdict_states():
+    # the three-state model (#31) is only proven if the suite pins each pole.
+    verdicts = {c.name: c.expect_verdict for c in suite.EVAL_CASES}
+    assert verdicts["clean-complete"] == "pass"
+    assert verdicts["warn-advisory"] == "warn"
+    assert verdicts["mediocre-readme"] == "block"
+    # and the panel actually reproduces each state end to end
+    by_name = {r.name: r for r in suite.run_suite()}
+    assert by_name["clean-complete"].verdict == "pass"
+    assert by_name["warn-advisory"].verdict == "warn"
+    assert by_name["mediocre-readme"].verdict == "block"
+
+
+def test_warn_advisory_warns_without_blocking():
+    # the middle state: advisory findings, a reviewer go, no blocker => warn.
+    result = suite.run_case(next(c for c in suite.EVAL_CASES if c.name == "warn-advisory"))
+    assert result.ok
+    assert result.consensus_go is True
+    assert result.has_blocker is False
+    assert result.verdict == "warn"
+    assert result.categories == ["doc-quality", "naming"]
+
+
 def test_eval_suite_is_reproducible_across_runs():
     r1 = suite.run_suite()
     r2 = suite.run_suite()
-    assert [(r.name, r.consensus_go, r.categories, r.has_blocker) for r in r1] == \
-           [(r.name, r.consensus_go, r.categories, r.has_blocker) for r in r2]
+    assert [(r.name, r.consensus_go, r.verdict, r.categories, r.has_blocker) for r in r1] == \
+           [(r.name, r.consensus_go, r.verdict, r.categories, r.has_blocker) for r in r2]
 
 
 def test_clean_complete_reproduces_no_false_blocker():
