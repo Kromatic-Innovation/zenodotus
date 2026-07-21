@@ -93,6 +93,35 @@ def test_custom_consensus_callable(repo):
     assert result.consensus_go is False
 
 
+# --- three-state verdict projection (docs/PANEL_VERDICT_SPEC.md §1.1) --------- #
+
+def test_panel_verdict_pass_when_clean(repo):
+    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO]))
+    assert panel.panel_verdict(result) == "pass"
+
+
+def test_panel_verdict_warn_on_advisory_findings(repo):
+    # go=True with only major/minor findings => warn (advisory), not block.
+    verdict = {"go": True, "rationale": "nit", "findings": [_finding(severity="major")]}
+    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([verdict]))
+    assert result.consensus_go is True
+    assert panel.panel_verdict(result) == "warn"
+
+
+def test_panel_verdict_block_on_blocker(repo):
+    verdict = {"go": False, "rationale": "no", "findings": [_finding(severity="blocker")]}
+    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO, verdict, _GO]))
+    assert panel.panel_verdict(result) == "block"
+
+
+def test_panel_verdict_block_on_bare_no_go(repo):
+    # a reviewer no-go with no blocker finding still projects to block: per the
+    # spec §1.1 a per-reviewer no-go is equivalent to a blocker for the aggregate.
+    verdict = {"go": False, "rationale": "no", "findings": []}
+    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO, _GO, verdict]))
+    assert panel.panel_verdict(result) == "block"
+
+
 # --- discovery logging ------------------------------------------------------- #
 
 def test_panel_only_findings_written_with_missed_by_deterministic(repo, tmp_path):

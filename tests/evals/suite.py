@@ -36,7 +36,8 @@ class EvalCase:
     name: str
     fixture: str  # directory name under fixtures/
     cassette: str  # file name under cassettes/
-    expect_go: bool  # expected consensus verdict
+    expect_go: bool  # expected consensus verdict (back-compat boolean)
+    expect_verdict: str  # expected three-state projection: "pass" | "warn" | "block"
     expect_categories: tuple[str, ...] = ()  # sorted discovery categories expected
     expect_blocker: bool = False
     derived_from: str = ""  # the real logged-discovery theme this case pins down
@@ -50,6 +51,7 @@ EVAL_CASES: tuple[EvalCase, ...] = (
         fixture="mediocre-readme",
         cassette="mediocre-readme.json",
         expect_go=False,
+        expect_verdict="block",
         expect_categories=("naming", "usefulness"),
         expect_blocker=True,
         derived_from=(
@@ -58,10 +60,27 @@ EVAL_CASES: tuple[EvalCase, ...] = (
         ),
     ),
     EvalCase(
+        name="warn-advisory",
+        fixture="warn-advisory",
+        cassette="warn-advisory.json",
+        expect_go=True,
+        expect_verdict="warn",
+        expect_categories=("doc-quality", "naming"),
+        expect_blocker=False,
+        derived_from=(
+            "the middle state (#31): a genuinely ship-able library with only "
+            "advisory major/minor findings (a documented-but-incomplete error "
+            "contract + a naming nit) and no blocker. Every reviewer says go, so "
+            "the panel neither blocks nor passes silently — it WARNs. Pins the "
+            "three-state model's warn pole (warnings never block, exit 0)."
+        ),
+    ),
+    EvalCase(
         name="clean-complete",
         fixture="clean-complete",
         cassette="clean-complete.json",
         expect_go=True,
+        expect_verdict="pass",
         expect_categories=(),
         expect_blocker=False,
         derived_from=(
@@ -81,6 +100,7 @@ class EvalResult:
     ok: bool
     detail: str
     consensus_go: bool
+    verdict: str = "pass"  # three-state projection: pass | warn | block
     categories: list[str] = field(default_factory=list)
     has_blocker: bool = False
 
@@ -97,10 +117,13 @@ def run_case(case: EvalCase) -> EvalResult:
     )
     categories = sorted(d.category for d in review.discoveries)
     has_blocker = any(d.severity == "blocker" for d in review.discoveries)
+    verdict = panel.panel_verdict(review)  # three-state projection (spec §1.1)
 
     problems: list[str] = []
     if review.consensus_go != case.expect_go:
         problems.append(f"consensus_go={review.consensus_go}, expected {case.expect_go}")
+    if verdict != case.expect_verdict:
+        problems.append(f"verdict={verdict}, expected {case.expect_verdict}")
     if tuple(categories) != tuple(case.expect_categories):
         problems.append(f"categories={categories}, expected {list(case.expect_categories)}")
     if has_blocker != case.expect_blocker:
@@ -108,7 +131,7 @@ def run_case(case: EvalCase) -> EvalResult:
 
     ok = not problems
     return EvalResult(case.name, ok, "ok" if ok else "; ".join(problems),
-                      review.consensus_go, categories, has_blocker)
+                      review.consensus_go, verdict, categories, has_blocker)
 
 
 def run_suite(cases: tuple[EvalCase, ...] = EVAL_CASES) -> list[EvalResult]:
