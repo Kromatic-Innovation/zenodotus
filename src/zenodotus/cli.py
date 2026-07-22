@@ -24,7 +24,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import gates, panel
+from . import gates, panel, verdict_marker
 
 
 def _utcnow_iso() -> str:
@@ -69,6 +69,26 @@ def _derive_verdict(floor_ok: bool, panel_result, *, fail_on: str, shadow: bool)
     return panel_state  # WARN or PASS
 
 
+def _attach_verdict_marker(result: dict, args, at: str) -> dict:
+    """Attach the durable cross-repo verdict marker when ``--emit-verdict-marker``.
+
+    Records the effective verdict against the reviewed tree's git HEAD in the
+    ``<!-- zenodotus-verdict: v1 ... -->`` format (issue #54) so a separate tool
+    (hestia's ``oss-status``) can read "has zenodotus cleared this repo?" and
+    detect staleness by SHA. The marker is attached to the result (surfaced in
+    ``--json`` and printed in human mode); posting it is the caller's job.
+    """
+    if not getattr(args, "emit_verdict_marker", False):
+        return result
+    result["verdict_marker"] = verdict_marker.render_verdict_marker(
+        repo=verdict_marker.resolve_repo(args.path, getattr(args, "repo", None)),
+        sha=verdict_marker.head_sha(args.path),
+        verdict=result["verdict"],
+        ran_at=at,
+    )
+    return result
+
+
 def _run_review(args, *, provider=None, now: str | None = None) -> dict:
     """Execute the review pipeline and return a structured result dict."""
     at = now or _utcnow_iso()
@@ -92,6 +112,9 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         "panel_verdict": None,
         "verdict": panel.BLOCK,
         "state": panel.BLOCK,
+        # Durable cross-repo verdict marker (issue #54); populated only when
+        # --emit-verdict-marker is set, else stays None.
+        "verdict_marker": None,
     }
 
     # Normally the panel short-circuits — it never runs until the deterministic
@@ -101,7 +124,7 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
     if not (floor_ok or shadow):
         result["verdict"] = _derive_verdict(floor_ok, None, fail_on=fail_on, shadow=shadow)
         result["state"] = result["verdict"]
-        return result
+        return _attach_verdict_marker(result, args, at)
 
     panel_result = panel.review(
         args.path,
@@ -120,7 +143,7 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
     result["panel_verdict"] = panel.panel_verdict(panel_result)
     result["verdict"] = _derive_verdict(floor_ok, panel_result, fail_on=fail_on, shadow=shadow)
     result["state"] = result["verdict"]
-    return result
+    return _attach_verdict_marker(result, args, at)
 
 
 def _print_human(result: dict, out=None) -> None:
@@ -163,6 +186,12 @@ def _print_human(result: dict, out=None) -> None:
     else:  # block
         print(f"\nVERDICT: {label}  (blocking — exit non-zero)", file=out)
 
+    marker = result.get("verdict_marker")
+    if marker:
+        print("\nDurable verdict marker (post as a comment on the target repo so "
+              "hestia's oss-status can read it):", file=out)
+        print(marker, file=out)
+
 
 def main(argv: list[str] | None = None, *, provider=None, now: str | None = None) -> int:
     parser = argparse.ArgumentParser(prog="zenodotus", description=__doc__)
@@ -189,6 +218,17 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
                              "discoveries to the log, and NEVER fail the build (exit 0). "
                              "The recommended way to accumulate prove-itself evidence on "
                              "live release candidates.")
+    review.add_argument("--emit-verdict-marker", action="store_true",
+                        dest="emit_verdict_marker",
+                        help="Emit a durable, machine-readable cross-repo verdict marker "
+                             "(<!-- zenodotus-verdict: v1 ... -->) recording the verdict "
+                             "against the reviewed tree's git HEAD. Post it as a comment on "
+                             "the target repo so hestia's oss-status command can read whether "
+                             "zenodotus has cleared that repo (issue #54).")
+    review.add_argument("--repo", default=None,
+                        help="owner/name slug recorded in the verdict marker (--emit-verdict-"
+                             "marker). Defaults to the reviewed tree's git 'origin' remote, "
+                             "then the directory name.")
     args = parser.parse_args(argv)
 
     if args.command == "review":

@@ -265,3 +265,96 @@ def test_json_floor_fail_has_null_panel(tmp_path, capsys):
     assert payload["panel"] is None
     assert payload["panel_verdict"] is None  # panel did not run
     assert payload["verdict"] == "block"  # deterministic floor failure blocks
+
+
+# --- durable cross-repo verdict marker (#54) --------------------------------- #
+
+def _git(path, *args):
+    import subprocess
+    subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True, text=True)
+
+
+def _make_git_repo(d, remote="https://github.com/o/target.git"):
+    _git(d, "init", "-q")
+    _git(d, "config", "user.email", "t@example.com")
+    _git(d, "config", "user.name", "t")
+    _git(d, "add", "-A")
+    _git(d, "commit", "-q", "-m", "init")
+    _git(d, "remote", "add", "origin", remote)
+    import subprocess
+    return subprocess.run(["git", "-C", str(d), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_no_marker_by_default(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    code = main(["review", str(d), "--json", "--log", ""], provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict_marker"] is None
+
+
+def test_emit_verdict_marker_records_head_sha_and_verdict(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    sha = _make_git_repo(d)
+    code = main(["review", str(d), "--json", "--log", "", "--emit-verdict-marker"],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    marker = payload["verdict_marker"]
+    assert marker is not None
+    from zenodotus.verdict_marker import parse_verdict_marker
+    parsed = parse_verdict_marker(marker)
+    assert parsed["sha"] == sha
+    assert parsed["repo"] == "o/target"          # detected from origin remote
+    assert parsed["verdict"] == payload["verdict"]  # matches the effective verdict
+    assert parsed["ran_at"] == NOW
+
+
+def test_emit_verdict_marker_repo_override(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    _make_git_repo(d)
+    code = main(["review", str(d), "--json", "--log", "", "--emit-verdict-marker",
+                 "--repo", "Kromatic-Innovation/ideate-core"],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    from zenodotus.verdict_marker import parse_verdict_marker
+    assert parse_verdict_marker(payload["verdict_marker"])["repo"] == "Kromatic-Innovation/ideate-core"
+
+
+def test_emit_verdict_marker_non_git_path_uses_unknown_sha(tmp_path, capsys):
+    # a non-git tree can't pin a commit -> sentinel sha so a consumer never reads
+    # it as a false "cleared" (staleness fallback, design Q5).
+    d = _clean_repo(tmp_path)
+    code = main(["review", str(d), "--json", "--log", "", "--emit-verdict-marker"],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    from zenodotus.verdict_marker import parse_verdict_marker, UNKNOWN_SHA
+    assert parse_verdict_marker(payload["verdict_marker"])["sha"] == UNKNOWN_SHA
+
+
+def test_emit_verdict_marker_on_floor_fail_records_block(tmp_path, capsys):
+    # marker is emitted even when the floor fails (verdict=block) via the
+    # short-circuit path — a block is a valid durable verdict to record.
+    d = tmp_path / "nolicense"
+    d.mkdir()
+    (d / "README.md").write_text("# x\n")
+    code = main(["review", str(d), "--json", "--log", "", "--emit-verdict-marker"],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    from zenodotus.verdict_marker import parse_verdict_marker
+    assert parse_verdict_marker(payload["verdict_marker"])["verdict"] == "block"
+
+
+def test_emit_verdict_marker_printed_in_human_mode(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    _make_git_repo(d)
+    code = main(["review", str(d), "--log", "", "--emit-verdict-marker"],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "<!-- zenodotus-verdict: v1" in out
+    assert "oss-status" in out
