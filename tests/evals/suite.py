@@ -91,6 +91,25 @@ EVAL_CASES: tuple[EvalCase, ...] = (
             "context and passes it — no false blocker reproduces."
         ),
     ),
+    EvalCase(
+        name="pre-publish-registry-lag",
+        fixture="pre-publish-registry-lag",
+        cassette="pre-publish-registry-lag.json",
+        expect_go=True,
+        expect_verdict="warn",
+        expect_categories=("doc-quality",),
+        expect_blocker=False,
+        derived_from=(
+            "the pre-publish registry-lag false-blocker theme (#53): a release "
+            "candidate whose README/pyproject/CHANGELOG advertise the about-to-ship "
+            "version (0.3.0) while the live registry still lags at the previous one "
+            "(0.2.0) — the panelist#14 / ideate-core#11 shape. That lag is the "
+            "expected, structural state of any pre-publish candidate, not a defect. "
+            "With the pre-publish-candidate framing in REVIEWER_RUBRIC (#53) the "
+            "panel reports it as at most a minor release-day checklist note (WARN, "
+            "advisory, exit 0) — never a blocker that forces block/CONDITIONAL/FAIL."
+        ),
+    ),
 )
 
 

@@ -46,6 +46,32 @@ def _finding(category="coherence", severity="major", finding="README assumes con
             "rationale": "an outsider can't follow it"}
 
 
+# --- reviewer rubric framing (#53) ------------------------------------------- #
+
+def _norm(s: str) -> str:
+    # collapse the rubric's hard line-wraps so substring checks aren't foiled by
+    # where a phrase happens to wrap across lines.
+    return " ".join(s.split()).lower()
+
+
+def test_rubric_frames_review_as_pre_publish_candidate():
+    # AC1 (#53): the persona prompt must explicitly frame the review as a
+    # pre-publish candidate assessment, not a live-artifact audit.
+    rubric = _norm(panel.REVIEWER_RUBRIC)
+    assert "pre-publish release candidate" in rubric
+    assert "not the live published artifact" in rubric
+    assert "about to replace the current live version" in rubric
+
+
+def test_rubric_says_registry_lag_is_not_a_blocker():
+    # AC2 (#53): a finding whose only basis is "the live registry hasn't caught
+    # up to this candidate yet" is a release-day note, never a blocker/no-go.
+    rubric = _norm(panel.REVIEWER_RUBRIC)
+    assert "release-day checklist note" in rubric
+    assert "never a `blocker` and never a reviewer no-go" in rubric
+    assert "resolve automatically on publish" in rubric
+
+
 # --- basic shape ------------------------------------------------------------- #
 
 def test_review_returns_per_reviewer_verdicts_and_consensus(repo):
