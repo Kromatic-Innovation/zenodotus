@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tickstamp"
+version = "0.3.0"
+description = "Format Unix timestamps as compact, sortable YYYYMMDD-HHMMSS strings"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [{ name = "The tickstamp authors" }]
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tickstamp"]

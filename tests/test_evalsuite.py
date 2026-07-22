@@ -71,6 +71,22 @@ def test_clean_complete_reproduces_no_false_blocker():
     assert result.categories == []
 
 
+def test_pre_publish_registry_lag_never_blocks():
+    # regression for #53: a pre-publish candidate whose docs advertise the
+    # about-to-ship version while the live registry still lags the previous one
+    # must NOT be blocked. The lag is expected/structural, not a defect — the
+    # panel reports it as at most an advisory release-day note (WARN, exit 0).
+    result = suite.run_case(
+        next(c for c in suite.EVAL_CASES if c.name == "pre-publish-registry-lag")
+    )
+    assert result.ok
+    assert result.consensus_go is True
+    assert result.has_blocker is False
+    assert result.verdict == "warn"
+    assert result.verdict != "block"
+    assert result.categories == ["doc-quality"]
+
+
 def test_mediocre_readme_still_blocks():
     # the genuine-problem case must still be caught, or the suite proves nothing.
     result = suite.run_case(next(c for c in suite.EVAL_CASES if c.name == "mediocre-readme"))

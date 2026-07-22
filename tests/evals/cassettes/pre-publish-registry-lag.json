@@ -1,0 +1,36 @@
+{
+  "interactions": {
+    "3b4a10c6f7e9f0ff": {
+      "response": {
+        "findings": [],
+        "go": true,
+        "rationale": "Clean, focused, and finished enough to publish; no blockers."
+      },
+      "reviewer_id": "reviewer-3"
+    },
+    "654dd3a3ae6001f0": {
+      "response": {
+        "findings": [
+          {
+            "category": "doc-quality",
+            "finding": "README, pyproject, and CHANGELOG present 0.3.0 (and its new `utc` keyword) as the current release, while the live PyPI version still lags at 0.2.0 until the tag is cut.",
+            "rationale": "Expected pre-publish registry lag, not a defect in this candidate \u2014 it resolves automatically on publish. Raised only as a release-day checklist note (cut the 0.3.0 tag so the live version matches), never a blocker.",
+            "severity": "minor"
+          }
+        ],
+        "go": true,
+        "rationale": "Ship-able as a release candidate; only a release-day note about the pending version bump."
+      },
+      "reviewer_id": "reviewer-2"
+    },
+    "81dcef25db96cf5a": {
+      "response": {
+        "findings": [],
+        "go": true,
+        "rationale": "Small, honest, single-purpose stdlib library; scope and docs are coherent for an outsider."
+      },
+      "reviewer_id": "reviewer-1"
+    }
+  },
+  "version": 1
+}
