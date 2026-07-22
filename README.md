@@ -140,6 +140,8 @@ Options:
   makes a blocker-severity finding or a reviewer no-go exit non-zero. The
   deterministic floor blocks regardless.
 - `--shadow` — advisory, non-blocking run (see [Shadow mode](#shadow-mode-recommended-for-accumulating-evidence) below).
+- `--emit-verdict-marker` — also emit a durable, machine-readable cross-repo verdict marker (see [Cross-repo review](#cross-repo-review-verdict-marker) below).
+- `--repo OWNER/NAME` — the slug recorded in that marker (defaults to the reviewed tree's git `origin` remote, then its directory name).
 
 Exit code follows the three-state verdict: `0` for `pass` and `warn` (warnings
 never block), non-zero only for `block`. By default (`--fail-on never`) a panel
@@ -163,6 +165,36 @@ live RCs (docs/CONCEPT.md): gather a meaningful set of panel-only discoveries
 safely, before Zenodotus blocks anything. Add it as a non-required CI step first,
 review the accumulated log, and — once the evidence justifies it — tighten to a
 blocking panel by dropping `--shadow` **and** setting `--fail-on blocker`.
+
+### Cross-repo review (verdict marker)
+
+Zenodotus can review an **external** repo — not just itself — and record a
+durable verdict a separate tool can read. `zenodotus review <path>` already
+accepts any checkout; add `--emit-verdict-marker` to also emit a small,
+machine-readable marker recording the verdict against that tree's git HEAD:
+
+```bash
+zenodotus review /path/to/ideate-core --emit-verdict-marker \
+  --repo Kromatic-Innovation/ideate-core
+```
+
+```html
+<!-- zenodotus-verdict: v1
+     repo: Kromatic-Innovation/ideate-core
+     sha: <full commit SHA reviewed>
+     verdict: pass | warn | block
+     ran_at: <ISO-8601>
+     runner: zenodotus vX.Y.Z
+-->
+```
+
+Post that marker as a comment on the target repo. A consumer (e.g. hestia's
+`oss-status` command) reads it to answer "has zenodotus cleared this repo's
+current `main`?" and detects staleness for free by comparing the marker's `sha`
+to the target's current HEAD — mismatch (or the `unknown` sentinel when the tree
+was not a git checkout) means "stale, re-run", never a silent false "cleared".
+Zenodotus only *writes* the marker; it stays dependency-free and does not post to
+GitHub itself. Full format spec: [`docs/CROSS_REPO_VERDICT.md`](docs/CROSS_REPO_VERDICT.md).
 
 ### Deployable routine (container / CI job)
 
