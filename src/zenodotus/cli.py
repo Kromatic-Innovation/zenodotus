@@ -146,6 +146,22 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
     return _attach_verdict_marker(result, args, at)
 
 
+def _floor_verdict_line(result: dict) -> str:
+    """The one-line floor verdict, disclosing any skipped gates (issue #64).
+
+    A bare ``PASSED`` overstates what a local run actually checked when a gate
+    was skipped (e.g. ``no_secrets`` with gitleaks absent). So when the floor
+    passes with skips, name them: ``PASSED (1 skipped: no_secrets)``. A run with
+    no skips keeps the bare ``PASSED`` — no cosmetic churn on the common path.
+    """
+    if not result["floor_passed"]:
+        return "FAILED"
+    skipped = [g["name"] for g in result["gates"] if g["skipped"]]
+    if not skipped:
+        return "PASSED"
+    return f"PASSED ({len(skipped)} skipped: {', '.join(skipped)})"
+
+
 def _print_human(result: dict, out=None) -> None:
     out = out if out is not None else sys.stdout
     print(f"zenodotus review: {result['path']}", file=out)
@@ -153,7 +169,7 @@ def _print_human(result: dict, out=None) -> None:
     for g in result["gates"]:
         status = "SKIP" if g["skipped"] else ("PASS" if g["passed"] else "FAIL")
         print(f"  [{status}] {g['name']}: {g['detail']}", file=out)
-    print(f"  floor: {'PASSED' if result['floor_passed'] else 'FAILED'}", file=out)
+    print(f"  floor: {_floor_verdict_line(result)}", file=out)
 
     panel_data = result["panel"]
     if panel_data is None:

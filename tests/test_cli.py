@@ -10,7 +10,7 @@ import json
 import pytest
 
 from zenodotus import gates
-from zenodotus.cli import main
+from zenodotus.cli import _floor_verdict_line, main
 from zenodotus.discovery_log import load
 
 NOW = "2026-07-20T00:00:00Z"
@@ -358,3 +358,61 @@ def test_emit_verdict_marker_printed_in_human_mode(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "<!-- zenodotus-verdict: v1" in out
     assert "oss-status" in out
+
+
+# --- floor verdict discloses skipped gates (issue #64) ----------------------- #
+
+def test_floor_verdict_names_skipped_gate():
+    # A skipped gate on a PASSED floor is disclosed, not hidden behind a bare
+    # PASSED — the false-confidence shape issue #64 fixes.
+    result = {
+        "floor_passed": True,
+        "gates": [
+            {"name": "license_present", "passed": True, "skipped": False},
+            {"name": "no_secrets", "passed": False, "skipped": True},
+        ],
+    }
+    assert _floor_verdict_line(result) == "PASSED (1 skipped: no_secrets)"
+
+
+def test_floor_verdict_names_multiple_skipped_gates():
+    result = {
+        "floor_passed": True,
+        "gates": [
+            {"name": "no_secrets", "passed": False, "skipped": True},
+            {"name": "packaging_ok", "passed": False, "skipped": True},
+        ],
+    }
+    assert _floor_verdict_line(result) == "PASSED (2 skipped: no_secrets, packaging_ok)"
+
+
+def test_floor_verdict_bare_passed_when_no_skips():
+    # AC: no skips => the existing bare PASSED, no cosmetic churn.
+    result = {
+        "floor_passed": True,
+        "gates": [{"name": "license_present", "passed": True, "skipped": False}],
+    }
+    assert _floor_verdict_line(result) == "PASSED"
+
+
+def test_floor_verdict_failed_stays_bare():
+    # A FAILED floor already tells the reader it did not pass; skips ride the
+    # per-gate SKIP lines above it. The overstatement fixed here is PASSED-only.
+    result = {
+        "floor_passed": False,
+        "gates": [{"name": "no_secrets", "passed": False, "skipped": True}],
+    }
+    assert _floor_verdict_line(result) == "FAILED"
+
+
+def test_cli_floor_line_discloses_skipped_gate(tmp_path, capsys):
+    # End-to-end: with external tools disabled (autouse fixture) the clean repo
+    # passes the floor while no_secrets/packaging_ok skip, so the verdict line
+    # must name the skip rather than print a bare PASSED.
+    d = _clean_repo(tmp_path)
+    code = main(["review", str(d), "--reviewers", "1", "--log", ""],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "floor: PASSED (" in out
+    assert "no_secrets" in out
