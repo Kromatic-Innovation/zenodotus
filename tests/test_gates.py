@@ -14,7 +14,6 @@ import pytest
 from zenodotus import gates
 from zenodotus.gates import GateResult
 
-
 # --- fixture repos ----------------------------------------------------------- #
 
 def _make_repo(root, *, license=True, contributing=True, readme=True,

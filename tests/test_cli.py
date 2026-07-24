@@ -331,7 +331,7 @@ def test_emit_verdict_marker_non_git_path_uses_unknown_sha(tmp_path, capsys):
                 provider=StubProvider(_GO), now=NOW)
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    from zenodotus.verdict_marker import parse_verdict_marker, UNKNOWN_SHA
+    from zenodotus.verdict_marker import UNKNOWN_SHA, parse_verdict_marker
     assert parse_verdict_marker(payload["verdict_marker"])["sha"] == UNKNOWN_SHA
 
 
