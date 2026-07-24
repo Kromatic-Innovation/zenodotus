@@ -22,7 +22,7 @@ class Grid:
     def col_means(self) -> list[float]:
         return [sum(col) / len(col) for col in zip(*self.rows)]
 
-    def transpose(self) -> "Grid":
+    def transpose(self) -> Grid:
         return Grid([list(col) for col in zip(*self.rows)])
 
     def flatten(self) -> list[float]:

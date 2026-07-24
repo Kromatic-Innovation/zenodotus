@@ -238,8 +238,8 @@ def test_gather_context_includes_public_files_only(repo):
 # READMEs read as "unfinished", untracked working-tree noise read as "leaked
 # internal files", and an omitted LICENSE body read as "license uncertainty".
 
-import shutil  # noqa: E402 — grouped with the regression block it supports
-import subprocess  # noqa: E402
+import shutil
+import subprocess
 
 
 def test_gather_context_includes_license_body(tmp_path):

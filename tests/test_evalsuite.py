@@ -13,7 +13,7 @@ from pathlib import Path
 # importable without turning tests/ into a package.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "evals"))
 
-import suite  # noqa: E402
+import suite
 
 
 def test_eval_suite_is_green():

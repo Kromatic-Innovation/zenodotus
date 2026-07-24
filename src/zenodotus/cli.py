@@ -22,13 +22,13 @@ import argparse
 import dataclasses
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import gates, panel, verdict_marker
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 # --- verdict policy ---------------------------------------------------------- #

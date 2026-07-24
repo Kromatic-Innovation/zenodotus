@@ -19,9 +19,10 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 from . import discovery_log
 from .discovery_log import CATEGORIES, Discovery
@@ -304,7 +305,7 @@ def any_blocker_no_go(verdicts: list[ReviewerVerdict]) -> bool:
 PASS, WARN, BLOCK = "pass", "warn", "block"
 
 
-def panel_verdict(review: "PanelReview") -> str:
+def panel_verdict(review: PanelReview) -> str:
     """Project a completed panel run onto the three-state verdict `pass|warn|block`.
 
     This is the panel's own contribution to the aggregate verdict, before any
