@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Zenodotus is published to PyPI (0.1.0) and pre-1.0, under active build-out (see
+Zenodotus is published to PyPI and pre-1.0, under active build-out (see
 `docs/CONCEPT.md`). Until a tagged `1.0` release, security fixes target the latest
 published release — the `main` branch it is cut from (via `promote-main.yml`) and
 the corresponding PyPI release — plus the `develop` integration branch that feeds

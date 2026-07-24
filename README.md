@@ -30,7 +30,7 @@ The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 
 ## Status
 
-**Public and published** — `zenodotus` 0.1.0 is on PyPI (`pip install zenodotus`)
+**Public and published** — `zenodotus` is on PyPI (`pip install zenodotus`)
 and this repo is open source. The core pipeline (deterministic gates → no-context
 reviewer panel → discovery log → verdict) is wired end to end via
 `zenodotus review`. Still pre-1.0: the "prove itself" work (docs/CONCEPT.md) —
