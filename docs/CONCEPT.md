@@ -76,7 +76,7 @@ longer public record as panel runs land.
 
 ## Prove-itself protocol (historical gate — now the value hypothesis under test)
 
-The public flip and PyPI publish have **already happened** (zenodotus 0.1.0). The
+The public flip and PyPI publish have **already happened**. The
 "prove itself" protocol was originally the gate that held them back; it is kept
 here as the framing for *why the discovery-log and eval-suite work still matters*
 now that publication is done. The two conditions were:
