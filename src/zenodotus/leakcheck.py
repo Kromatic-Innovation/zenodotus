@@ -24,6 +24,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import fileset
+
 # (regex, human label). Kept high-signal to avoid false positives on public repos.
 DEFAULT_DENYLIST: list[tuple[str, str]] = [
     (r"~/Code(?:/|\b)", "home-dir dev path (~/Code)"),
@@ -75,17 +77,21 @@ def load_denylist_file(path: str | Path) -> list[tuple[str, str]]:
 
 
 def _iter_text_files(root: Path):
-    for entry in sorted(root.rglob("*")):
-        if not entry.is_file():
+    # Enumerate only files that would actually ship (git-tracked, respecting
+    # .gitignore) via the shared helper, so gitignored/generated local artifacts
+    # (.agents/, .codex/, .tmp/, …) are never scanned and can't raise false
+    # "leak" hits (issue #68). Outside a git work tree this falls back to a
+    # filtered walk. panel.py builds on the same enumeration so the two can't drift.
+    for rel_posix in sorted(fileset.shippable_files(root)):
+        rel = Path(rel_posix)
+        if set(rel.parts) & _IGNORE_DIRS:
             continue
-        rel = entry.relative_to(root)
-        parts = set(rel.parts)
-        if parts & _IGNORE_DIRS:
-            continue
-        rel_posix = rel.as_posix()
         if any(fnmatch.fnmatch(rel_posix, g) for g in _IGNORE_GLOBS):
             continue
+        entry = root / rel
         try:
+            if not entry.is_file():  # git may list a staged-then-deleted path
+                continue
             if entry.stat().st_size > _MAX_FILE_BYTES:
                 continue
             data = entry.read_bytes()

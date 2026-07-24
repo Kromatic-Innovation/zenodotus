@@ -17,14 +17,12 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from . import discovery_log
+from . import discovery_log, fileset
 from .discovery_log import CATEGORIES, Discovery
 
 # Default provider model. Overridable via env; the issue calls for "latest model".
@@ -199,73 +197,15 @@ _CONTEXT_FILES = (
 # and — if we ever do hit it — annotate explicitly that the source is complete.
 _MAX_FILE_CHARS = 200_000
 
-# Directories/files that are never part of a shipped artifact. Used ONLY as a
-# fallback filter when the target is not a git work tree (so we can't ask git
-# which files are tracked); mirrors common .gitignore entries. Inside a git repo
-# we defer to ``git ls-files`` instead, which is authoritative.
-_UNTRACKED_DIRS = frozenset({
-    ".git", ".venv", "venv", "env", ".env", "__pycache__", ".pytest_cache",
-    ".ruff_cache", ".mypy_cache", ".tox", "node_modules", "dist", "build",
-    ".eggs", ".agents", ".codex", ".tmp", "tmp", "coverage", "htmlcov",
-    ".idea", ".vscode", ".DS_Store",
-})
-_UNTRACKED_FILES = frozenset({".DS_Store"})
-
-
-def _which(tool: str) -> str | None:  # injectable seam, mirrors gates.py
-    return shutil.which(tool)
-
-
-def _run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
-
-
-def _tracked_files(root: Path) -> list[str] | None:
-    """Tracked files under ``root`` (relative posix paths), or ``None`` if not git.
-
-    Reflects what would actually ship — respecting ``.gitignore`` — instead of the
-    raw working tree, so untracked/generated artifacts (``.venv/``, ``dist/``,
-    ``.DS_Store``, ``.agents/``) never leak into the review context and trigger
-    false "internal files leaked" blockers (issue #30 defect 2).
-    """
-    if _which("git") is None:
-        return None
-    inside = _run(["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"])
-    if inside.returncode != 0 or inside.stdout.strip() != "true":
-        return None
-    proc = _run(["git", "-C", str(root), "ls-files", "-z"])
-    if proc.returncode != 0:
-        return None
-    return [f for f in proc.stdout.split("\0") if f]
-
-
-def _walk_files(root: Path) -> list[str]:
-    """Fallback tree for a non-git target (e.g. an extracted package artifact).
-
-    Filters obvious untracked/generated noise by name so a stray ``dist/`` or
-    ``.venv/`` in a plain directory still doesn't read as shipped content.
-    """
-    out: list[str] = []
-    for p in root.rglob("*"):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(root)
-        if set(rel.parts) & _UNTRACKED_DIRS:
-            continue
-        if rel.name in _UNTRACKED_FILES:
-            continue
-        out.append(rel.as_posix())
-    return out
-
-
 def gather_context(path: str) -> str:
     """Collect the repo's public-facing files into one bounded review context."""
     root = Path(path)
     parts: list[str] = []
-    # A file tree gives reviewers a sense of scope. Prefer git-tracked files so
-    # untracked working-tree noise never presents as shipped content.
-    tracked = _tracked_files(root)
-    files = tracked if tracked is not None else _walk_files(root)
+    # A file tree gives reviewers a sense of scope. Enumerate the files that would
+    # actually ship (git-tracked, respecting .gitignore) via the shared helper, so
+    # untracked working-tree noise never presents as shipped content (issue #30
+    # defect 2) and this stays in lockstep with leakcheck's enumeration (#68).
+    files = fileset.shippable_files(root)
     tree = sorted(files)
     parts.append("## File tree\n" + "\n".join(tree[:200]))
 

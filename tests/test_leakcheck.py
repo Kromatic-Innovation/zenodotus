@@ -5,10 +5,18 @@ CI runs must be green (issue #11 acceptance).
 """
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from zenodotus import leakcheck
 from zenodotus.leakcheck import scan
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
 
 
 def test_clean_repo_has_no_hits(tmp_path):
@@ -85,6 +93,53 @@ def test_main_json_output(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["clean"] is False
     assert len(payload["hits"]) == 1
+
+
+def test_gitignored_file_with_leak_is_not_scanned(tmp_path):
+    """Regression (#68): inside a git work tree, leakcheck respects .gitignore.
+
+    A gitignored file containing a known leak marker must NOT trip the check (it
+    can never ship); a tracked file with the same marker still must. Before #68,
+    ``leakcheck`` walked the raw tree with ``rglob`` and flagged the ignored one —
+    a false positive on any locally-generated artifact.
+    """
+    if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
+        pytest.skip("git not available")
+
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+
+    # A gitignored generated artifact carrying a leak marker — must be skipped.
+    (tmp_path / ".gitignore").write_text(".agents/\n")
+    agents = tmp_path / ".agents"
+    agents.mkdir()
+    (agents / "workspace-context.md").write_text("built from ~/Code/private/thing\n")
+
+    # A tracked file carrying the same marker — must still be caught.
+    (tmp_path / "notes.md").write_text("path: ~/Code/also-here\n")
+    _git(tmp_path, "add", ".gitignore", "notes.md")
+
+    hits = scan(tmp_path)
+    files = {h.file for h in hits}
+    assert "notes.md" in files, f"tracked leak must still be caught; got {hits}"
+    assert not any(h.file.startswith(".agents/") for h in hits), (
+        f"gitignored file must not be scanned; got {hits}"
+    )
+
+
+def test_untracked_file_with_leak_is_not_scanned(tmp_path):
+    """A plain untracked (not even ignored) file also doesn't ship, so it's skipped."""
+    if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
+        pytest.skip("git not available")
+
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "shipped.md").write_text("clean and public\n")
+    _git(tmp_path, "add", "shipped.md")
+    # Never added to the index — untracked, so it would not ship.
+    (tmp_path / "scratch.md").write_text("leftover: ~/Code/scratch\n")
+
+    assert scan(tmp_path) == []
 
 
 def test_this_repo_is_clean():
