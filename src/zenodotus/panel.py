@@ -39,8 +39,13 @@ def _iso_now() -> str:
     not an empty string). The discovery log itself is unaffected — it still
     requires an explicit `at` from the caller so it stays deterministic
     (discovery_log never reads the clock; see review()'s guard clause).
+
+    Matches ``cli._utcnow_iso()``'s shape exactly (seconds precision, ``Z``
+    suffix) so ``isolation.denied[].at`` reads identically whether it came
+    from the CLI or a library caller — a sibling repo (panelist) implements
+    the same envelope against this timestamp field.
     """
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 # The rubric each no-context reviewer answers. Deliberately framed for an
@@ -423,7 +428,10 @@ def review(
     verdicts: list[ReviewerVerdict] = []
     all_denied: list[isolation.DeniedAttempt] = []
     all_granted: set[str] = set()
-    effective_at = at if at is not None else _iso_now()
+    # Falsy check (not `is None`): an explicit `at=""` must fall back the same
+    # as an omitted `at` — the §1.3 guarantee is "never empty", not "never
+    # omitted" (Quine review, PR #81).
+    effective_at = at if at else _iso_now()
 
     for i in range(n_reviewers):
         reviewer_id = f"reviewer-{i + 1}"

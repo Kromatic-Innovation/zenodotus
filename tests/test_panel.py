@@ -570,7 +570,22 @@ def test_denied_at_defaults_to_real_iso8601_without_log_path(repo):
     denied_at = result.isolation["denied"][0]["at"]
     assert denied_at != ""
     # datetime.fromisoformat round-trips a real ISO-8601 string; a bogus or
-    # empty value raises ValueError.
+    # empty (or date-only) value fails these checks.
+    parsed = datetime.fromisoformat(denied_at)
+    assert parsed.tzinfo is not None  # not a naive/date-only string
+    # Matches cli._utcnow_iso()'s exact shape: seconds precision, "Z" suffix —
+    # so isolation.denied[].at reads identically from either entry point.
+    assert denied_at.endswith("Z")
+    assert "." not in denied_at
+
+
+def test_denied_at_defaults_to_real_iso8601_for_explicit_empty_string(repo):
+    # An explicit `at=""` must fall back the same as an omitted `at` — the
+    # §1.3 guarantee is "never empty", not merely "never omitted".
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(str(repo), n_reviewers=1, provider=provider, at="")
+    denied_at = result.isolation["denied"][0]["at"]
+    assert denied_at != ""
     datetime.fromisoformat(denied_at)
 
 
