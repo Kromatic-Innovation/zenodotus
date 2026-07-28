@@ -142,6 +142,7 @@ Options:
 - `--shadow` — advisory, non-blocking run (see [Shadow mode](#shadow-mode-recommended-for-accumulating-evidence) below).
 - `--emit-verdict-marker` — also emit a durable, machine-readable cross-repo verdict marker (see [Cross-repo review](#cross-repo-review-verdict-marker) below).
 - `--repo OWNER/NAME` — the slug recorded in that marker (defaults to the reviewed tree's git `origin` remote, then its directory name).
+- `--reviewer-tools tool1,tool2` — explicit tool allowlist for reviewers ([issue #79](https://github.com/Kromatic-Innovation/zenodotus/issues/79)). Default: unset, i.e. fully isolated — reviewers get no tools at all, no matter what a provider requests. Anything not named here (including a tool-search/discovery capability) is denied, not implicitly reachable; the effective tool set and any denied attempt are reported (`--json` → `panel.isolation`).
 
 Exit code follows the three-state verdict: `0` for `pass` and `warn` (warnings
 never block), non-zero only for `block`. By default (`--fail-on never`) a panel

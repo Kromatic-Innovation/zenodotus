@@ -1,6 +1,6 @@
 # Shared persona-panel verdict spec
 
-**Status:** normative · **Version:** 1.0 · **Applies to:** any synthetic
+**Status:** normative · **Version:** 1.1 · **Applies to:** any synthetic
 reviewer/persona panel in your org, in any language.
 
 This document specifies a **shared verdict shape** — a three-state verdict
@@ -126,6 +126,48 @@ A conformant verdict is a JSON object with these fields:
 > panel is `pass`. panelist's persona/schema internals are unaffected — only the
 > emitted verdict envelope conforms.
 
+### 1.3 Isolation record
+
+A reviewer's no-context guarantee is only real if it is structural, not a
+prompt instruction the reviewer is trusted to honor
+([zenodotus#79](https://github.com/Kromatic-Innovation/zenodotus/issues/79),
+[panelist#(sibling)](https://github.com/Kromatic-Innovation/panelist)). This
+spec adds an **additive top-level key**, permitted by §1.2's "Implementations
+MAY carry additional fields", so a reader of the verdict can see what
+isolation the verdict was actually produced under:
+
+```json
+"isolation": {
+  "tools": [],
+  "denied": [
+    { "tool": "recall", "reviewer": "<persona-or-reviewer-id>", "at": "<ISO-8601>" }
+  ]
+}
+```
+
+- `isolation.tools` — **REQUIRED**. Effective tool identifiers granted to the
+  panel. `[]` means fully isolated (the default posture). Present at the
+  top level of the verdict record (§1.2) — set to `{"tools": [], "denied":
+  []}` even when the panel did not run, so the key is always present.
+- `isolation.denied` — **REQUIRED**. Attempted-but-denied tool calls; `[]`
+  when none were attempted. A denied attempt **MUST** be recorded here, not
+  swallowed — the attempt itself is signal about the reviewer/prompt.
+- If tool sets differ per reviewer, the top-level `isolation.tools` is the
+  **union** across all reviewers. An implementation that keeps a
+  per-reviewer record (e.g. zenodotus's `ReviewerVerdict`) **SHOULD** also
+  expose that reviewer's own effective tool set on the record, under an
+  implementation-defined key — this spec does not pin that key's name or
+  nesting, only that the top-level `isolation` block above is present and
+  correct.
+- Both implementations (zenodotus, panelist) conform to this shape as of spec
+  version 1.1.
+
+> **zenodotus mapping (informative).** `PanelReview.isolation` is the §1.3
+> block verbatim (union `tools`, flat `denied` list). Each
+> `ReviewerVerdict` additionally carries its own effective set as a plain
+> `tools: list[str]` field (not nested under `isolation`) — an
+> implementation-defined choice permitted by the paragraph above.
+
 ---
 
 ## 2. Discovery-log format
@@ -219,6 +261,11 @@ targets.
 
 ## Changelog
 
+- **1.1** ([zenodotus#79](https://github.com/Kromatic-Innovation/zenodotus/issues/79)) —
+  additive: new §1.3 Isolation record (`isolation.tools` / `isolation.denied`)
+  as a top-level verdict key, so a reader can see what tool isolation a
+  reviewer verdict was produced under. Backward-compatible per §4 (new
+  optional field) — a previously conformant verdict remains conformant.
 - **1.0** ([zenodotus#36](https://github.com/Kromatic-Innovation/zenodotus/issues/36)) — initial spec: three-state `pass`/`warn`/`block`
   verdict, severity→state mapping, verdict record shape, and the JSONL
   discovery-log format. Derived from zenodotus's existing `panel.py` /

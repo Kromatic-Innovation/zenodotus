@@ -115,6 +115,10 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         # Durable cross-repo verdict marker (issue #54); populated only when
         # --emit-verdict-marker is set, else stays None.
         "verdict_marker": None,
+        # docs/PANEL_VERDICT_SPEC.md §1.3 isolation record, top level per spec.
+        # Always present, even when the panel never runs, so the key never
+        # goes missing on a reader.
+        "isolation": {"tools": [], "denied": []},
     }
 
     # Normally the panel short-circuits — it never runs until the deterministic
@@ -126,6 +130,7 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         result["state"] = result["verdict"]
         return _attach_verdict_marker(result, args, at)
 
+    reviewer_tools = getattr(args, "reviewer_tools", None)
     panel_result = panel.review(
         args.path,
         n_reviewers=args.reviewers,
@@ -133,13 +138,16 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         gate_results=gate_results,
         log_path=args.log,
         at=at,
+        reviewer_tools={"reviewers": {"tools": reviewer_tools}} if reviewer_tools else None,
     )
     result["panel"] = {
         "consensus_go": panel_result.consensus_go,
         "verdicts": [dataclasses.asdict(v) for v in panel_result.verdicts],
         "discoveries": [dataclasses.asdict(d) for d in panel_result.discoveries],
+        "isolation": panel_result.isolation,
         "log_path": str(args.log) if args.log else None,
     }
+    result["isolation"] = panel_result.isolation
     result["panel_verdict"] = panel.panel_verdict(panel_result)
     result["verdict"] = _derive_verdict(floor_ok, panel_result, fail_on=fail_on, shadow=shadow)
     result["state"] = result["verdict"]
@@ -184,6 +192,14 @@ def _print_human(result: dict, out=None) -> None:
         if n_disc:
             where = panel_data["log_path"] or "(not persisted)"
             print(f"  {n_disc} panel-only discoveries logged -> {where}", file=out)
+
+        iso = panel_data["isolation"]
+        tools_label = ", ".join(iso["tools"]) if iso["tools"] else "none (fully isolated)"
+        print(f"  isolation: tools=[{tools_label}]", file=out)
+        if iso["denied"]:
+            for d in iso["denied"]:
+                print(f"    DENIED: {d['reviewer']} attempted tool '{d['tool']}' at {d['at']}",
+                      file=out)
 
     verdict = result["verdict"]
     label = verdict.upper()
@@ -245,7 +261,15 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
                         help="owner/name slug recorded in the verdict marker (--emit-verdict-"
                              "marker). Defaults to the reviewed tree's git 'origin' remote, "
                              "then the directory name.")
+    review.add_argument("--reviewer-tools", dest="reviewer_tools", default=None,
+                        help="Comma-separated tool allowlist granted to reviewers (issue #79). "
+                             "Default: unset, i.e. fully isolated — reviewers get no tools at "
+                             "all. A tool not named here (including a tool-search/discovery "
+                             "capability) is denied, not implicitly reachable, and any denied "
+                             "attempt is surfaced in the run report (--json 'panel.isolation').")
     args = parser.parse_args(argv)
+    if getattr(args, "reviewer_tools", None) is not None:
+        args.reviewer_tools = [t.strip() for t in args.reviewer_tools.split(",") if t.strip()]
 
     if args.command == "review":
         if args.log == "":

@@ -17,6 +17,43 @@ commitment and stays unused, so MINOR and PATCH do double duty:
   entry therefore states its breaking status explicitly**, rather than leaving
   the version number to imply it.
 
+## [0.3.0] - 2026-07-27
+
+Minor release: reviewer tool isolation is now structurally enforced, not
+prompt-instructed. Additive fields plus a default-posture change.
+
+### Breaking-change status
+
+**No API signature breaks for CLI/JSON consumers.** The `panel.Provider`
+protocol itself gained a required keyword-only `tools` parameter on
+`review()` — a custom `Provider` implementation that doesn't accept it will
+raise `TypeError` when called by `panel.review()`. Update custom providers to
+accept `*, tools: list[dict] | None = None`.
+
+### Added
+
+- **Structural tool isolation for the no-context reviewer panel**
+  ([#79](https://github.com/Kromatic-Innovation/zenodotus/issues/79)). A new
+  `zenodotus.isolation` module is the single enforcement point between "a
+  provider wants to declare tool X" and "tool X reaches the API/agent call":
+  - Deny by default — an unset or empty allowlist means a reviewer gets no
+    tools at all, regardless of what a provider requests.
+  - Explicit opt-in via `reviewer_tools` (`panel.review(..., reviewer_tools=
+    {"reviewers": {"tools": [...]}})`) or the new CLI flag
+    `--reviewer-tools tool1,tool2`.
+  - Matching is exact-name-only — no wildcard, no category grant — so a
+    tool-search/discovery capability is never implicitly admitted by
+    allowlisting something else; it must be named explicitly, same as any
+    other tool.
+  - Every denied attempt is recorded, never swallowed, and surfaced in the run
+    report (`--json` → `panel.isolation`, human mode → `isolation:` /
+    `DENIED:` lines).
+- **`docs/PANEL_VERDICT_SPEC.md` bumped to 1.1** — new §1.3 "Isolation record"
+  defines the shared `isolation.tools` / `isolation.denied` verdict shape,
+  additive per §4, conformed to by both zenodotus and panelist.
+- `PanelReview.isolation` and `ReviewerVerdict.tools` — the aggregate and
+  per-reviewer effective tool sets, respectively.
+
 ## [0.2.0] - 2026-07-24
 
 Minor release: the review gate's verdict is now three-state, a consumer-visible
