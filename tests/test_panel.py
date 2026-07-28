@@ -6,6 +6,8 @@ supplied explicitly so discovery-log writes stay deterministic.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from zenodotus import panel
@@ -299,6 +301,52 @@ def test_default_provider_does_not_need_sdk_at_import():
     assert p._client is None
 
 
+# --- AnthropicProvider tools kwarg (issue #79 followup item 3) -------------- #
+# The shipped default-provider security claim rests entirely on whether the
+# `tools` kwarg reaches `messages.create` — no live API needed, just a fake
+# client injected past the lazy `_get_client()` import.
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.create_kwargs = None
+
+    def create(self, **kwargs):
+        self.create_kwargs = kwargs
+
+        class _Block:
+            type = "text"
+            text = "{}"
+
+        class _Response:
+            def __init__(self):
+                self.content = [_Block()]
+
+        return _Response()
+
+
+class _FakeClient:
+    def __init__(self):
+        self.messages = _FakeMessages()
+
+
+def test_anthropic_provider_omits_tools_kwarg_when_permitted_is_empty():
+    provider = panel.AnthropicProvider()
+    fake_client = _FakeClient()
+    provider._client = fake_client  # bypass the lazy anthropic import
+    provider.review("reviewer-1", "context", tools=[])
+    assert "tools" not in fake_client.messages.create_kwargs
+
+
+def test_anthropic_provider_passes_tools_kwarg_when_permitted_nonempty():
+    provider = panel.AnthropicProvider()
+    fake_client = _FakeClient()
+    provider._client = fake_client
+    permitted = [{"name": "recall"}]
+    provider.review("reviewer-1", "context", tools=permitted)
+    assert fake_client.messages.create_kwargs["tools"] == permitted
+
+
 def test_gather_context_includes_public_files_only(repo):
     ctx = panel.gather_context(str(repo))
     assert "README" in ctx
@@ -465,18 +513,65 @@ def test_denied_attempt_surfaced_per_reviewer_not_swallowed(repo):
     }
 
 
-def test_isolation_tools_is_union_across_reviewers():
-    # zenodotus's per-panel allowlist is uniform today, but the union rule
-    # (spec §1.3) must still hold: the aggregate is every reviewer's granted set.
-    from zenodotus import isolation
+class _VaryingRequestProvider:
+    """Requests a different tool on each successive call.
 
-    p1 = isolation.ToolPolicy(reviewer="reviewer-1", allowed=frozenset({"recall"}))
-    p2 = isolation.ToolPolicy(reviewer="reviewer-2", allowed=frozenset({"WebSearch"}))
-    granted = set()
-    for p, requested in ((p1, [{"name": "recall"}]), (p2, [{"name": "WebSearch"}])):
-        permitted = p.filter_tools(requested, at="2026-07-20T00:00:00Z")
-        granted.update(t["name"] for t in permitted)
-    assert granted == {"recall", "WebSearch"}
+    Per-reviewer *policy* (the allowlist) is uniform today — resolve_policy
+    does not vary by reviewer_id (see isolation.py) — so two ToolPolicy
+    objects with different `allowed` sets, as this test previously
+    constructed by hand, are not reachable through panel.review()'s public
+    API; that test never called panel.review() at all and pinned nothing
+    (deleting panel.py's `all_granted.update(...)` left it green). What IS
+    reachable: panel.review() re-reads `provider.requested_tools` fresh on
+    every loop iteration, so a provider that varies its own request per call
+    genuinely exercises the union across reviewers.
+    """
+
+    def __init__(self, tool_lists, verdict=None):
+        self._tool_lists = list(tool_lists)
+        self._verdict = verdict or _GO
+        self.calls = 0
+
+    @property
+    def requested_tools(self):
+        idx = min(self.calls, len(self._tool_lists) - 1)
+        return self._tool_lists[idx]
+
+    def review(self, reviewer_id, context, *, tools=None):
+        self.calls += 1
+        return self._verdict
+
+
+def test_isolation_tools_is_union_across_reviewers(repo):
+    # spec §1.3: PanelReview.isolation["tools"] must be the union of every
+    # reviewer's granted set, not just the last reviewer's. Each reviewer here
+    # requests (and is granted) a different tool; if panel.py's
+    # `all_granted.update(granted_names)` were deleted, isolation["tools"]
+    # would come back empty instead of the union asserted below.
+    provider = _VaryingRequestProvider([[{"name": "recall"}], [{"name": "WebSearch"}]])
+    result = panel.review(
+        str(repo),
+        n_reviewers=2,
+        provider=provider,
+        at="2026-07-20T00:00:00Z",
+        reviewer_tools={"reviewers": {"tools": ["recall", "WebSearch"]}},
+    )
+    assert result.verdicts[0].tools == ["recall"]
+    assert result.verdicts[1].tools == ["WebSearch"]
+    assert result.isolation["tools"] == ["WebSearch", "recall"]
+
+
+def test_denied_at_defaults_to_real_iso8601_without_log_path(repo):
+    # docs/PANEL_VERDICT_SPEC.md §1.3 pins "at": "<ISO-8601>" for every denied
+    # attempt. A library caller who runs review() without log_path/at used to
+    # get "at": "" — panel.py must fall back to a real timestamp instead.
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(str(repo), n_reviewers=1, provider=provider)
+    denied_at = result.isolation["denied"][0]["at"]
+    assert denied_at != ""
+    # datetime.fromisoformat round-trips a real ISO-8601 string; a bogus or
+    # empty value raises ValueError.
+    datetime.fromisoformat(denied_at)
 
 
 def test_anthropic_provider_defaults_to_no_requested_tools():

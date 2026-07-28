@@ -20,6 +20,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -28,6 +29,19 @@ from .discovery_log import CATEGORIES, Discovery
 
 # Default provider model. Overridable via env; the issue calls for "latest model".
 DEFAULT_MODEL = os.environ.get("ZENODOTUS_MODEL", "claude-opus-4-8")
+
+
+def _iso_now() -> str:
+    """Real ISO-8601 UTC timestamp for the `at` fallback in review() below.
+
+    Only used to stamp DeniedAttempt.at when a caller runs review() without
+    `log_path`/`at` (docs/PANEL_VERDICT_SPEC.md §1.3 pins ``"at": "<ISO-8601>"``,
+    not an empty string). The discovery log itself is unaffected — it still
+    requires an explicit `at` from the caller so it stays deterministic
+    (discovery_log never reads the clock; see review()'s guard clause).
+    """
+    return datetime.now(UTC).isoformat()
+
 
 # The rubric each no-context reviewer answers. Deliberately framed for an
 # outsider with zero internal context — that blindness is the whole point.
@@ -149,8 +163,16 @@ class Provider(Protocol):
     ``tools`` is the list of tool declarations (provider-format dicts with at
     least a ``name`` key) this call is actually permitted to offer the model —
     already filtered through :mod:`zenodotus.isolation` by the caller. A
-    provider MUST NOT offer any tool outside this list; it is the enforcement
-    boundary for the no-context guarantee (issue #79).
+    provider that routes its tool declarations through this ``tools``
+    parameter (as the shipped ``AnthropicProvider`` does) MUST NOT offer any
+    tool outside this list; it is the enforcement boundary for the no-context
+    guarantee (issue #79) for those providers. The guarantee is structural
+    only up to that boundary: the isolation envelope can see nothing a
+    third-party ``Provider`` implementation declares outside ``tools`` (e.g.
+    tools it wires up itself inside its own ``review()`` body) — such a run
+    would still report ``{"tools": [], "denied": []}``. Providers are
+    responsible for actually routing every tool declaration through this
+    parameter.
     """
 
     def review(
@@ -202,7 +224,7 @@ class AnthropicProvider:
 
     def review(
         self, reviewer_id: str, context: str, *, tools: list[dict] | None = None
-    ) -> dict:  # pragma: no cover - needs live API
+    ) -> dict:
         client = self._get_client()
         kwargs = {"tools": tools} if tools else {}
         response = client.messages.create(
@@ -381,9 +403,10 @@ def review(
     :mod:`zenodotus.isolation` and enforced as the ONLY tools passed to
     ``provider.review``; anything the provider requests outside that allowlist
     is denied and surfaced in ``PanelReview.isolation``, never swallowed. Each
-    ``DeniedAttempt.at`` is stamped from ``at`` the same way discovery-log
-    entries are (``at or ""``) — pass ``at`` whenever a denial might occur, or
-    the recorded timestamp will be an empty string rather than ISO-8601.
+    ``DeniedAttempt.at`` is stamped from ``at`` when given; if ``at`` is
+    omitted (no ``log_path``), it falls back to a real ISO-8601 UTC timestamp
+    generated at call time — never an empty string — so a library caller's
+    isolation record always satisfies ``docs/PANEL_VERDICT_SPEC.md`` §1.3.
     """
     if provider is None:
         provider = AnthropicProvider()
@@ -400,11 +423,13 @@ def review(
     verdicts: list[ReviewerVerdict] = []
     all_denied: list[isolation.DeniedAttempt] = []
     all_granted: set[str] = set()
+    effective_at = at if at is not None else _iso_now()
+
     for i in range(n_reviewers):
         reviewer_id = f"reviewer-{i + 1}"
         policy = isolation.resolve_policy(reviewer_tools, reviewer_id)
         requested = list(getattr(provider, "requested_tools", []) or [])
-        permitted = policy.filter_tools(requested, at=at or "")
+        permitted = policy.filter_tools(requested, at=effective_at)
         granted_names = sorted(
             str(t.get("name", "")) for t in permitted if t.get("name")
         )
