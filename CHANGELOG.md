@@ -47,7 +47,11 @@ accept `*, tools: list[dict] | None = None`.
     other tool.
   - Every denied attempt is recorded, never swallowed, and surfaced in the run
     report (`--json` → `panel.isolation`, human mode → `isolation:` /
-    `DENIED:` lines).
+    `DENIED:` lines). `DeniedAttempt.at` is always a real ISO-8601 timestamp
+    per `docs/PANEL_VERDICT_SPEC.md` §1.3 — `panel.review()` stamps it from
+    the caller-supplied `at`, falling back to the current UTC time (same
+    seconds-precision `Z`-suffixed shape the CLI already emits) when a
+    library caller omits or passes an empty `at`.
 - **`docs/PANEL_VERDICT_SPEC.md` bumped to 1.1** — new §1.3 "Isolation record"
   defines the shared `isolation.tools` / `isolation.denied` verdict shape,
   additive per §4, conformed to by both zenodotus and panelist.
