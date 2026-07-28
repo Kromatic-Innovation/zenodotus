@@ -13,6 +13,7 @@ No live LLM calls happen in tests: the provider is injectable, and the default
 ``AnthropicProvider`` imports the ``anthropic`` SDK lazily so importing this
 module (and running the suite with a stub/replay provider) needs no API key.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from . import discovery_log, fileset
+from . import discovery_log, fileset, isolation
 from .discovery_log import CATEGORIES, Discovery
 
 # Default provider model. Overridable via env; the issue calls for "latest model".
@@ -98,7 +99,10 @@ VERDICT_SCHEMA: dict = {
                 "properties": {
                     "finding": {"type": "string"},
                     "category": {"type": "string", "enum": list(CATEGORIES)},
-                    "severity": {"type": "string", "enum": ["blocker", "major", "minor"]},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["blocker", "major", "minor"],
+                    },
                     "rationale": {"type": "string"},
                 },
                 "required": ["finding", "category", "severity", "rationale"],
@@ -117,6 +121,9 @@ class ReviewerVerdict:
     go: bool
     findings: list[dict]
     rationale: str
+    # Effective tool identifiers this reviewer actually had (issue #79 /
+    # docs/PANEL_VERDICT_SPEC.md §1.3). Empty by default — fully isolated.
+    tools: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -126,6 +133,11 @@ class PanelReview:
     verdicts: list[ReviewerVerdict]
     consensus_go: bool
     discoveries: list[Discovery] = field(default_factory=list)
+    # docs/PANEL_VERDICT_SPEC.md §1.3 isolation record: `tools` is the union of
+    # every reviewer's effective tool set, `denied` is every attempted-but-
+    # blocked tool declaration across the panel. Empty/empty is the default,
+    # fully-isolated posture.
+    isolation: dict = field(default_factory=lambda: {"tools": [], "denied": []})
 
 
 class Provider(Protocol):
@@ -133,20 +145,42 @@ class Provider(Protocol):
 
     Implementations MUST NOT be given internal context beyond ``context`` (the
     repo's own public files) — reviewers are no-context by design.
+
+    ``tools`` is the list of tool declarations (provider-format dicts with at
+    least a ``name`` key) this call is actually permitted to offer the model —
+    already filtered through :mod:`zenodotus.isolation` by the caller. A
+    provider MUST NOT offer any tool outside this list; it is the enforcement
+    boundary for the no-context guarantee (issue #79).
     """
 
-    def review(self, reviewer_id: str, context: str) -> dict:
+    def review(
+        self, reviewer_id: str, context: str, *, tools: list[dict] | None = None
+    ) -> dict:
         """Return ``{"go": bool, "rationale": str, "findings": [ {...}, ... ]}``."""
         ...
 
 
 class AnthropicProvider:
-    """Default provider — Anthropic Claude, latest model. Lazily imports the SDK."""
+    """Default provider — Anthropic Claude, latest model. Lazily imports the SDK.
 
-    def __init__(self, model: str = DEFAULT_MODEL, api_key: str | None = None):
+    ``requested_tools`` is the tool declarations this provider WOULD LIKE to
+    offer the model (Anthropic API tool-schema dicts) — empty by default, so
+    the default panel run never even attempts to declare a tool. Whatever it
+    requests still passes through the caller's :mod:`zenodotus.isolation`
+    policy in :func:`review`; only what survives that filter is ever sent to
+    the API via the ``tools`` kwarg.
+    """
+
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        api_key: str | None = None,
+        requested_tools: list[dict] | None = None,
+    ):
         self.model = model
         self._api_key = api_key
         self._client = None
+        self.requested_tools = list(requested_tools or [])
 
     def _get_client(self):
         if self._client is None:
@@ -155,25 +189,34 @@ class AnthropicProvider:
             except ImportError as exc:  # pragma: no cover - only hit without the SDK
                 raise RuntimeError(
                     "The 'anthropic' package is required for the default provider. "
-                    "Install with `pip install \"zenodotus[llm]\"`, or pass a custom "
+                    'Install with `pip install "zenodotus[llm]"`, or pass a custom '
                     "provider to review()."
                 ) from exc
             # anthropic.Anthropic() resolves ANTHROPIC_API_KEY (or an ant profile).
-            self._client = anthropic.Anthropic(api_key=self._api_key) if self._api_key \
+            self._client = (
+                anthropic.Anthropic(api_key=self._api_key)
+                if self._api_key
                 else anthropic.Anthropic()
+            )
         return self._client
 
-    def review(self, reviewer_id: str, context: str) -> dict:  # pragma: no cover - needs live API
+    def review(
+        self, reviewer_id: str, context: str, *, tools: list[dict] | None = None
+    ) -> dict:  # pragma: no cover - needs live API
         client = self._get_client()
+        kwargs = {"tools": tools} if tools else {}
         response = client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=REVIEWER_RUBRIC,
             output_config={"format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
-            messages=[{
-                "role": "user",
-                "content": f"Reviewer id: {reviewer_id}\n\nRepository under review:\n\n{context}",
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Reviewer id: {reviewer_id}\n\nRepository under review:\n\n{context}",
+                }
+            ],
+            **kwargs,
         )
         text = next((b.text for b in response.content if b.type == "text"), "{}")
         return json.loads(text)
@@ -185,17 +228,29 @@ class AnthropicProvider:
 # The LICENSE body is included (issue #30 defect 3): omitting it makes reviewers
 # raise license-mismatch/uncertainty findings they could otherwise resolve.
 _CONTEXT_FILES = (
-    "README.md", "README.rst", "README",
-    "LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING",
-    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    "docs/CONCEPT.md", "docs/POSITIONING.md",
-    "pyproject.toml", "setup.py", "setup.cfg",
+    "README.md",
+    "README.rst",
+    "README",
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+    "LICENCE",
+    "COPYING",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "docs/CONCEPT.md",
+    "docs/POSITIONING.md",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
 )
 # Generous per-file cap (issue #30 defect 1). The old 8,000-char cap sliced long
 # but complete READMEs mid-word, so reviewers mis-flagged them as "unfinished".
 # We keep a bound so context stays sane, but raise it well past any real README
 # and — if we ever do hit it — annotate explicitly that the source is complete.
 _MAX_FILE_CHARS = 200_000
+
 
 def gather_context(path: str) -> str:
     """Collect the repo's public-facing files into one bounded review context."""
@@ -226,6 +281,7 @@ def gather_context(path: str) -> str:
 
 
 # --- consensus --------------------------------------------------------------- #
+
 
 def any_blocker_no_go(verdicts: list[ReviewerVerdict]) -> bool:
     """Default consensus: go unless any reviewer said no-go or raised a blocker."""
@@ -285,13 +341,16 @@ def _deterministically_caught(finding: dict, gate_results) -> bool:
     category = finding.get("category")
     for gate in gate_results:
         # a gate only "catches" something when it actually FAILED (not skipped)
-        failed = (not getattr(gate, "passed", False)) and (not getattr(gate, "skipped", False))
+        failed = (not getattr(gate, "passed", False)) and (
+            not getattr(gate, "skipped", False)
+        )
         if failed and category in _GATE_COVERS.get(getattr(gate, "name", ""), set()):
             return True
     return False
 
 
 # --- panel ------------------------------------------------------------------- #
+
 
 def review(
     path: str,
@@ -303,6 +362,7 @@ def review(
     log_path: str | Path | None = None,
     at: str | None = None,
     repo_name: str | None = None,
+    reviewer_tools: dict | list[str] | None = None,
 ) -> PanelReview:
     """Run ``n_reviewers`` no-context reviewers over ``path`` and aggregate.
 
@@ -314,27 +374,58 @@ def review(
     ``at`` is the ISO-8601 timestamp stamped onto discovery-log entries; the
     caller supplies it so the log stays deterministic (discovery_log never reads
     the clock). Required whenever ``log_path`` is set.
+
+    ``reviewer_tools`` is the tool allowlist config (issue #79 /
+    docs/PANEL_VERDICT_SPEC.md §1.3), e.g. ``{"reviewers": {"tools": []}}`` —
+    empty/absent means fully isolated (the default). Resolved per reviewer via
+    :mod:`zenodotus.isolation` and enforced as the ONLY tools passed to
+    ``provider.review``; anything the provider requests outside that allowlist
+    is denied and surfaced in ``PanelReview.isolation``, never swallowed. Each
+    ``DeniedAttempt.at`` is stamped from ``at`` the same way discovery-log
+    entries are (``at or ""``) — pass ``at`` whenever a denial might occur, or
+    the recorded timestamp will be an empty string rather than ISO-8601.
     """
     if provider is None:
         provider = AnthropicProvider()
     if consensus is None:
         consensus = any_blocker_no_go
     if log_path is not None and at is None:
-        raise ValueError("`at` (ISO-8601 timestamp) is required when writing a discovery log")
+        raise ValueError(
+            "`at` (ISO-8601 timestamp) is required when writing a discovery log"
+        )
     repo = repo_name or Path(path).name
 
     context = gather_context(path)
 
     verdicts: list[ReviewerVerdict] = []
+    all_denied: list[isolation.DeniedAttempt] = []
+    all_granted: set[str] = set()
     for i in range(n_reviewers):
         reviewer_id = f"reviewer-{i + 1}"
-        raw = provider.review(reviewer_id, context)
-        verdicts.append(ReviewerVerdict(
-            reviewer=reviewer_id,
-            go=bool(raw.get("go", False)),
-            findings=list(raw.get("findings", [])),
-            rationale=str(raw.get("rationale", "")),
-        ))
+        policy = isolation.resolve_policy(reviewer_tools, reviewer_id)
+        requested = list(getattr(provider, "requested_tools", []) or [])
+        permitted = policy.filter_tools(requested, at=at or "")
+        granted_names = sorted(
+            str(t.get("name", "")) for t in permitted if t.get("name")
+        )
+        all_denied.extend(policy.denied)
+        all_granted.update(granted_names)
+
+        raw = provider.review(reviewer_id, context, tools=permitted)
+        verdicts.append(
+            ReviewerVerdict(
+                reviewer=reviewer_id,
+                go=bool(raw.get("go", False)),
+                findings=list(raw.get("findings", [])),
+                rationale=str(raw.get("rationale", "")),
+                tools=granted_names,
+            )
+        )
+
+    isolation_record = {
+        "tools": sorted(all_granted),
+        "denied": [d.as_dict() for d in all_denied],
+    }
 
     # Record panel-only discoveries (things the deterministic floor missed).
     discoveries: list[Discovery] = []
@@ -364,4 +455,5 @@ def review(
         verdicts=verdicts,
         consensus_go=consensus(verdicts),
         discoveries=discoveries,
+        isolation=isolation_record,
     )
