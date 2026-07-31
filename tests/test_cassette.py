@@ -50,7 +50,7 @@ def test_key_is_stable_and_context_sensitive():
 
 def test_record_then_replay_roundtrip(tmp_path):
     class Scripted:
-        def review(self, reviewer_id, context):
+        def review(self, reviewer_id, context, *, tools=None):
             return {"go": True, "rationale": reviewer_id, "findings": []}
 
     cassette = tmp_path / "c.json"

@@ -5,22 +5,24 @@ external gate tools disabled — no live API calls, no tools required.
 """
 from __future__ import annotations
 
+import argparse
 import json
 
 import pytest
 
 from zenodotus import gates
-from zenodotus.cli import _floor_verdict_line, main
+from zenodotus.cli import _floor_verdict_line, _run_review, main
 from zenodotus.discovery_log import load
 
 NOW = "2026-07-20T00:00:00Z"
 
 
 class StubProvider:
-    def __init__(self, verdict):
+    def __init__(self, verdict, requested_tools=None):
         self._verdict = verdict
+        self.requested_tools = requested_tools or []
 
-    def review(self, reviewer_id, context):
+    def review(self, reviewer_id, context, *, tools=None):
         return self._verdict
 
 
@@ -416,3 +418,68 @@ def test_cli_floor_line_discloses_skipped_gate(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "floor: PASSED (" in out
     assert "no_secrets" in out
+
+
+# --- reviewer tool isolation (issue #79) -------------------------------------- #
+
+def test_default_run_denies_tool_and_reports_it(tmp_path, capsys):
+    # No --reviewer-tools flag: a reviewer that wants a tool cannot reach it,
+    # and the run report (human mode) states the effective (empty) tool set
+    # plus the denied attempt — nothing is swallowed.
+    d = _clean_repo(tmp_path)
+    provider = StubProvider(_GO, requested_tools=[{"name": "recall"}])
+    code = main(["review", str(d), "--reviewers", "1", "--log", ""], provider=provider, now=NOW)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "isolation: tools=[none (fully isolated)]" in out
+    assert "DENIED: reviewer-1 attempted tool 'recall'" in out
+
+
+def test_reviewer_tools_flag_permits_named_tool(tmp_path, capsys):
+    d = _clean_repo(tmp_path)
+    provider = StubProvider(_GO, requested_tools=[{"name": "recall"}])
+    code = main(
+        ["review", str(d), "--reviewers", "1", "--log", "", "--reviewer-tools", "recall"],
+        provider=provider, now=NOW,
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "isolation: tools=[recall]" in out
+    assert "DENIED" not in out
+
+
+def test_isolation_surfaced_in_json_report(tmp_path):
+    d = _clean_repo(tmp_path)
+    provider = StubProvider(_GO, requested_tools=[{"name": "recall"}, {"name": "WebSearch"}])
+    result = _run_review(
+        argparse.Namespace(
+            path=str(d), reviewers=1, log=None, include_optional=False,
+            fail_on="never", shadow=False, emit_verdict_marker=False, repo=None,
+            reviewer_tools=["recall"],
+        ),
+        provider=provider, now=NOW,
+    )
+    # docs/PANEL_VERDICT_SPEC.md §1.3: isolation is a top-level verdict-record
+    # key, not only nested under "panel".
+    assert result["isolation"]["tools"] == ["recall"]
+    assert result["isolation"]["denied"] == [
+        {"tool": "WebSearch", "reviewer": "reviewer-1", "at": NOW}
+    ]
+    assert result["isolation"] == result["panel"]["isolation"]
+
+
+def test_isolation_key_present_and_empty_when_floor_fails(tmp_path):
+    # §1.3 says isolation.tools/denied are REQUIRED; when the panel never runs
+    # (floor failure, no shadow) the key must still be present, not missing.
+    d = tmp_path / "nolicense"
+    d.mkdir()
+    (d / "README.md").write_text("# x\n")
+    result = _run_review(
+        argparse.Namespace(
+            path=str(d), reviewers=1, log=None, include_optional=False,
+            fail_on="never", shadow=False, emit_verdict_marker=False, repo=None,
+            reviewer_tools=None,
+        ),
+        provider=StubProvider(_GO), now=NOW,
+    )
+    assert result["isolation"] == {"tools": [], "denied": []}

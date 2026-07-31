@@ -3,7 +3,10 @@
 No live API calls: a StubProvider replaces the Anthropic backend, and `at` is
 supplied explicitly so discovery-log writes stay deterministic.
 """
+
 from __future__ import annotations
+
+from datetime import datetime
 
 import pytest
 
@@ -16,15 +19,23 @@ from zenodotus.panel import PanelReview, ReviewerVerdict
 class StubProvider:
     """Returns canned verdicts in sequence (one per reviewer)."""
 
-    def __init__(self, verdicts):
+    def __init__(self, verdicts, requested_tools=None):
         self._verdicts = verdicts
         self.calls = []
+        self.tool_calls = []
+        self.requested_tools = requested_tools or []
 
-    def review(self, reviewer_id, context):
+    def review(self, reviewer_id, context, *, tools=None):
         self.calls.append((reviewer_id, context))
+        self.tool_calls.append(tools or [])
         # cycle if fewer canned verdicts than reviewers
-        return self._verdicts[len(self.calls) - 1 if len(self.calls) <= len(self._verdicts)
-                               else (len(self.calls) - 1) % len(self._verdicts)]
+        return self._verdicts[
+            (
+                len(self.calls) - 1
+                if len(self.calls) <= len(self._verdicts)
+                else (len(self.calls) - 1) % len(self._verdicts)
+            )
+        ]
 
 
 @pytest.fixture
@@ -42,11 +53,16 @@ _GO = {"go": True, "rationale": "looks fine", "findings": []}
 
 
 def _finding(category="coherence", severity="major", finding="README assumes context"):
-    return {"finding": finding, "category": category, "severity": severity,
-            "rationale": "an outsider can't follow it"}
+    return {
+        "finding": finding,
+        "category": category,
+        "severity": severity,
+        "rationale": "an outsider can't follow it",
+    }
 
 
 # --- reviewer rubric framing (#53) ------------------------------------------- #
+
 
 def _norm(s: str) -> str:
     # collapse the rubric's hard line-wraps so substring checks aren't foiled by
@@ -74,6 +90,7 @@ def test_rubric_says_registry_lag_is_not_a_blocker():
 
 # --- basic shape ------------------------------------------------------------- #
 
+
 def test_review_returns_per_reviewer_verdicts_and_consensus(repo):
     provider = StubProvider([_GO, _GO, _GO])
     result = panel.review(str(repo), n_reviewers=3, provider=provider)
@@ -98,8 +115,13 @@ def test_reviewers_are_independent_and_no_context(repo):
 
 # --- consensus --------------------------------------------------------------- #
 
+
 def test_blocker_forces_no_go(repo):
-    verdict = {"go": False, "rationale": "leak", "findings": [_finding(severity="blocker")]}
+    verdict = {
+        "go": False,
+        "rationale": "leak",
+        "findings": [_finding(severity="blocker")],
+    }
     provider = StubProvider([_GO, verdict, _GO])
     result = panel.review(str(repo), n_reviewers=3, provider=provider)
     assert result.consensus_go is False
@@ -114,12 +136,14 @@ def test_any_reviewer_no_go_blocks(repo):
 
 def test_custom_consensus_callable(repo):
     provider = StubProvider([_GO])
-    result = panel.review(str(repo), n_reviewers=2, provider=provider,
-                          consensus=lambda verdicts: False)
+    result = panel.review(
+        str(repo), n_reviewers=2, provider=provider, consensus=lambda verdicts: False
+    )
     assert result.consensus_go is False
 
 
 # --- three-state verdict projection (docs/PANEL_VERDICT_SPEC.md §1.1) --------- #
+
 
 def test_panel_verdict_pass_when_clean(repo):
     result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO]))
@@ -135,8 +159,14 @@ def test_panel_verdict_warn_on_advisory_findings(repo):
 
 
 def test_panel_verdict_block_on_blocker(repo):
-    verdict = {"go": False, "rationale": "no", "findings": [_finding(severity="blocker")]}
-    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO, verdict, _GO]))
+    verdict = {
+        "go": False,
+        "rationale": "no",
+        "findings": [_finding(severity="blocker")],
+    }
+    result = panel.review(
+        str(repo), n_reviewers=3, provider=StubProvider([_GO, verdict, _GO])
+    )
     assert panel.panel_verdict(result) == "block"
 
 
@@ -144,18 +174,31 @@ def test_panel_verdict_block_on_bare_no_go(repo):
     # a reviewer no-go with no blocker finding still projects to block: per the
     # spec §1.1 a per-reviewer no-go is equivalent to a blocker for the aggregate.
     verdict = {"go": False, "rationale": "no", "findings": []}
-    result = panel.review(str(repo), n_reviewers=3, provider=StubProvider([_GO, _GO, verdict]))
+    result = panel.review(
+        str(repo), n_reviewers=3, provider=StubProvider([_GO, _GO, verdict])
+    )
     assert panel.panel_verdict(result) == "block"
 
 
 # --- discovery logging ------------------------------------------------------- #
 
+
 def test_panel_only_findings_written_with_missed_by_deterministic(repo, tmp_path):
-    verdict = {"go": False, "rationale": "x", "findings": [_finding(), _finding(category="naming")]}
+    verdict = {
+        "go": False,
+        "rationale": "x",
+        "findings": [_finding(), _finding(category="naming")],
+    }
     provider = StubProvider([verdict])
     log = tmp_path / "discoveries.jsonl"
-    result = panel.review(str(repo), n_reviewers=2, provider=provider,
-                          log_path=log, at="2026-07-20T00:00:00Z", repo_name="ex/repo")
+    result = panel.review(
+        str(repo),
+        n_reviewers=2,
+        provider=provider,
+        log_path=log,
+        at="2026-07-20T00:00:00Z",
+        repo_name="ex/repo",
+    )
     rows = load(log)
     assert len(rows) == 4  # 2 findings x 2 reviewers
     assert all(r["missed_by_deterministic"] is True for r in rows)
@@ -166,38 +209,66 @@ def test_panel_only_findings_written_with_missed_by_deterministic(repo, tmp_path
 
 
 def test_unknown_category_coerced_to_other(repo, tmp_path):
-    verdict = {"go": False, "rationale": "x",
-               "findings": [{"finding": "f", "category": "bogus", "severity": "minor",
-                             "rationale": "r"}]}
+    verdict = {
+        "go": False,
+        "rationale": "x",
+        "findings": [
+            {"finding": "f", "category": "bogus", "severity": "minor", "rationale": "r"}
+        ],
+    }
     provider = StubProvider([verdict])
     log = tmp_path / "d.jsonl"
-    panel.review(str(repo), n_reviewers=1, provider=provider, log_path=log,
-                 at="2026-07-20T00:00:00Z")
+    panel.review(
+        str(repo),
+        n_reviewers=1,
+        provider=provider,
+        log_path=log,
+        at="2026-07-20T00:00:00Z",
+    )
     rows = load(log)
     assert rows[0]["category"] == "other"
 
 
 def test_finding_caught_by_failing_deterministic_gate_is_not_logged(repo, tmp_path):
     # a leakage finding is deduped only when no_secrets actually FAILED
-    verdict = {"go": False, "rationale": "x",
-               "findings": [_finding(category="leakage"), _finding(category="coherence")]}
+    verdict = {
+        "go": False,
+        "rationale": "x",
+        "findings": [_finding(category="leakage"), _finding(category="coherence")],
+    }
     provider = StubProvider([verdict])
     log = tmp_path / "d.jsonl"
     failed_secrets = GateResult("no_secrets", passed=False, detail="leak found")
-    panel.review(str(repo), n_reviewers=1, provider=provider, gate_results=[failed_secrets],
-                 log_path=log, at="2026-07-20T00:00:00Z")
+    panel.review(
+        str(repo),
+        n_reviewers=1,
+        provider=provider,
+        gate_results=[failed_secrets],
+        log_path=log,
+        at="2026-07-20T00:00:00Z",
+    )
     rows = load(log)
     # leakage deduped (already caught), coherence still logged
     assert [r["category"] for r in rows] == ["coherence"]
 
 
 def test_passing_gate_does_not_dedupe(repo, tmp_path):
-    verdict = {"go": False, "rationale": "x", "findings": [_finding(category="leakage")]}
+    verdict = {
+        "go": False,
+        "rationale": "x",
+        "findings": [_finding(category="leakage")],
+    }
     provider = StubProvider([verdict])
     log = tmp_path / "d.jsonl"
     passed_secrets = GateResult("no_secrets", passed=True, detail="clean")
-    panel.review(str(repo), n_reviewers=1, provider=provider, gate_results=[passed_secrets],
-                 log_path=log, at="2026-07-20T00:00:00Z")
+    panel.review(
+        str(repo),
+        n_reviewers=1,
+        provider=provider,
+        gate_results=[passed_secrets],
+        log_path=log,
+        at="2026-07-20T00:00:00Z",
+    )
     rows = load(log)
     assert len(rows) == 1  # floor passed => panel finding is a genuine discovery
 
@@ -205,24 +276,75 @@ def test_passing_gate_does_not_dedupe(repo, tmp_path):
 def test_log_path_requires_at(repo, tmp_path):
     provider = StubProvider([_GO])
     with pytest.raises(ValueError):
-        panel.review(str(repo), n_reviewers=1, provider=provider, log_path=tmp_path / "d.jsonl")
+        panel.review(
+            str(repo), n_reviewers=1, provider=provider, log_path=tmp_path / "d.jsonl"
+        )
 
 
 def test_no_log_path_still_returns_discoveries(repo):
     verdict = {"go": False, "rationale": "x", "findings": [_finding()]}
     provider = StubProvider([verdict])
-    result = panel.review(str(repo), n_reviewers=1, provider=provider, at="2026-07-20T00:00:00Z")
+    result = panel.review(
+        str(repo), n_reviewers=1, provider=provider, at="2026-07-20T00:00:00Z"
+    )
     assert len(result.discoveries) == 1
     assert result.discoveries[0].missed_by_deterministic is True
 
 
 # --- default provider is lazy ------------------------------------------------ #
 
+
 def test_default_provider_does_not_need_sdk_at_import():
     # constructing the provider must not import anthropic or need a key
     p = panel.AnthropicProvider()
     assert p.model  # e.g. "claude-opus-4-8"
     assert p._client is None
+
+
+# --- AnthropicProvider tools kwarg (issue #79 followup item 3) -------------- #
+# The shipped default-provider security claim rests entirely on whether the
+# `tools` kwarg reaches `messages.create` — no live API needed, just a fake
+# client injected past the lazy `_get_client()` import.
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.create_kwargs = None
+
+    def create(self, **kwargs):
+        self.create_kwargs = kwargs
+
+        class _Block:
+            type = "text"
+            text = "{}"
+
+        class _Response:
+            def __init__(self):
+                self.content = [_Block()]
+
+        return _Response()
+
+
+class _FakeClient:
+    def __init__(self):
+        self.messages = _FakeMessages()
+
+
+def test_anthropic_provider_omits_tools_kwarg_when_permitted_is_empty():
+    provider = panel.AnthropicProvider()
+    fake_client = _FakeClient()
+    provider._client = fake_client  # bypass the lazy anthropic import
+    provider.review("reviewer-1", "context", tools=[])
+    assert "tools" not in fake_client.messages.create_kwargs
+
+
+def test_anthropic_provider_passes_tools_kwarg_when_permitted_nonempty():
+    provider = panel.AnthropicProvider()
+    fake_client = _FakeClient()
+    provider._client = fake_client
+    permitted = [{"name": "recall"}]
+    provider.review("reviewer-1", "context", tools=permitted)
+    assert fake_client.messages.create_kwargs["tools"] == permitted
 
 
 def test_gather_context_includes_public_files_only(repo):
@@ -248,7 +370,9 @@ def test_gather_context_includes_license_body(tmp_path):
     d = tmp_path / "rc"
     d.mkdir()
     (d / "README.md").write_text("# Thing\n")
-    (d / "LICENSE").write_text("Apache License\nVersion 2.0\n\nGrant of Copyright License...\n")
+    (d / "LICENSE").write_text(
+        "Apache License\nVersion 2.0\n\nGrant of Copyright License...\n"
+    )
     ctx = panel.gather_context(str(d))
     assert "## LICENSE" in ctx
     assert "Grant of Copyright License" in ctx
@@ -284,6 +408,7 @@ def test_gather_context_uses_tracked_files_only_in_git_repo(tmp_path):
     # generated noise (.venv/, dist/, .DS_Store) must not present as shipped.
     if shutil.which("git") is None:  # pragma: no cover - git is a CI dependency
         import pytest as _pytest
+
         _pytest.skip("git not available")
     d = tmp_path / "rc"
     d.mkdir()
@@ -318,3 +443,152 @@ def test_gather_context_fallback_filters_junk_without_git(tmp_path):
     assert "README.md" in ctx
     assert "node_modules" not in ctx
     assert "__pycache__" not in ctx
+
+
+# --- reviewer tool isolation (issue #79 / docs/PANEL_VERDICT_SPEC.md §1.3) --- #
+
+
+def test_default_config_denies_all_tools(repo):
+    # a provider that wants a tool gets nothing when reviewer_tools is unset.
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(
+        str(repo), n_reviewers=1, provider=provider, at="2026-07-20T00:00:00Z"
+    )
+    assert result.verdicts[0].tools == []
+    assert result.isolation == {
+        "tools": [],
+        "denied": [
+            {"tool": "recall", "reviewer": "reviewer-1", "at": "2026-07-20T00:00:00Z"}
+        ],
+    }
+    # the provider itself must never see the denied declaration either.
+    assert provider.tool_calls == [[]]
+
+
+def test_explicit_allowlist_permits_named_tool(repo):
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(
+        str(repo),
+        n_reviewers=1,
+        provider=provider,
+        at="2026-07-20T00:00:00Z",
+        reviewer_tools={"reviewers": {"tools": ["recall"]}},
+    )
+    assert result.verdicts[0].tools == ["recall"]
+    assert result.isolation == {"tools": ["recall"], "denied": []}
+    assert provider.tool_calls == [[{"name": "recall"}]]
+
+
+def test_discovery_capability_not_implicitly_granted(repo):
+    # allowing one tool must not implicitly admit a tool-search/discovery
+    # capability — it has to be named on the allowlist itself, same as any
+    # other tool. No blocklist of "discovery-sounding" names is involved; this
+    # is the same exact-name-match path every other tool goes through.
+    provider = StubProvider(
+        [_GO], requested_tools=[{"name": "recall"}, {"name": "ToolSearch"}]
+    )
+    result = panel.review(
+        str(repo),
+        n_reviewers=1,
+        provider=provider,
+        at="2026-07-20T00:00:00Z",
+        reviewer_tools={"reviewers": {"tools": ["recall"]}},
+    )
+    assert result.verdicts[0].tools == ["recall"]
+    assert result.isolation["tools"] == ["recall"]
+    assert result.isolation["denied"] == [
+        {"tool": "ToolSearch", "reviewer": "reviewer-1", "at": "2026-07-20T00:00:00Z"}
+    ]
+
+
+def test_denied_attempt_surfaced_per_reviewer_not_swallowed(repo):
+    provider = StubProvider([_GO, _GO], requested_tools=[{"name": "WebSearch"}])
+    result = panel.review(
+        str(repo), n_reviewers=2, provider=provider, at="2026-07-20T00:00:00Z"
+    )
+    assert len(result.isolation["denied"]) == 2
+    assert {d["reviewer"] for d in result.isolation["denied"]} == {
+        "reviewer-1",
+        "reviewer-2",
+    }
+
+
+class _VaryingRequestProvider:
+    """Requests a different tool on each successive call.
+
+    Per-reviewer *policy* (the allowlist) is uniform today — resolve_policy
+    does not vary by reviewer_id (see isolation.py) — so two ToolPolicy
+    objects with different `allowed` sets, as this test previously
+    constructed by hand, are not reachable through panel.review()'s public
+    API; that test never called panel.review() at all and pinned nothing
+    (deleting panel.py's `all_granted.update(...)` left it green). What IS
+    reachable: panel.review() re-reads `provider.requested_tools` fresh on
+    every loop iteration, so a provider that varies its own request per call
+    genuinely exercises the union across reviewers.
+    """
+
+    def __init__(self, tool_lists, verdict=None):
+        self._tool_lists = list(tool_lists)
+        self._verdict = verdict or _GO
+        self.calls = 0
+
+    @property
+    def requested_tools(self):
+        idx = min(self.calls, len(self._tool_lists) - 1)
+        return self._tool_lists[idx]
+
+    def review(self, reviewer_id, context, *, tools=None):
+        self.calls += 1
+        return self._verdict
+
+
+def test_isolation_tools_is_union_across_reviewers(repo):
+    # spec §1.3: PanelReview.isolation["tools"] must be the union of every
+    # reviewer's granted set, not just the last reviewer's. Each reviewer here
+    # requests (and is granted) a different tool; if panel.py's
+    # `all_granted.update(granted_names)` were deleted, isolation["tools"]
+    # would come back empty instead of the union asserted below.
+    provider = _VaryingRequestProvider([[{"name": "recall"}], [{"name": "WebSearch"}]])
+    result = panel.review(
+        str(repo),
+        n_reviewers=2,
+        provider=provider,
+        at="2026-07-20T00:00:00Z",
+        reviewer_tools={"reviewers": {"tools": ["recall", "WebSearch"]}},
+    )
+    assert result.verdicts[0].tools == ["recall"]
+    assert result.verdicts[1].tools == ["WebSearch"]
+    assert result.isolation["tools"] == ["WebSearch", "recall"]
+
+
+def test_denied_at_defaults_to_real_iso8601_without_log_path(repo):
+    # docs/PANEL_VERDICT_SPEC.md §1.3 pins "at": "<ISO-8601>" for every denied
+    # attempt. A library caller who runs review() without log_path/at used to
+    # get "at": "" — panel.py must fall back to a real timestamp instead.
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(str(repo), n_reviewers=1, provider=provider)
+    denied_at = result.isolation["denied"][0]["at"]
+    assert denied_at != ""
+    # datetime.fromisoformat round-trips a real ISO-8601 string; a bogus or
+    # empty (or date-only) value fails these checks.
+    parsed = datetime.fromisoformat(denied_at)
+    assert parsed.tzinfo is not None  # not a naive/date-only string
+    # Matches cli._utcnow_iso()'s exact shape: seconds precision, "Z" suffix —
+    # so isolation.denied[].at reads identically from either entry point.
+    assert denied_at.endswith("Z")
+    assert "." not in denied_at
+
+
+def test_denied_at_defaults_to_real_iso8601_for_explicit_empty_string(repo):
+    # An explicit `at=""` must fall back the same as an omitted `at` — the
+    # §1.3 guarantee is "never empty", not merely "never omitted".
+    provider = StubProvider([_GO], requested_tools=[{"name": "recall"}])
+    result = panel.review(str(repo), n_reviewers=1, provider=provider, at="")
+    denied_at = result.isolation["denied"][0]["at"]
+    assert denied_at != ""
+    datetime.fromisoformat(denied_at)
+
+
+def test_anthropic_provider_defaults_to_no_requested_tools():
+    p = panel.AnthropicProvider()
+    assert p.requested_tools == []
