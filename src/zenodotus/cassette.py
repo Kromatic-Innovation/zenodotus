@@ -62,7 +62,7 @@ class CassetteProvider:
         doc = json.loads(path.read_text(encoding="utf-8"))
         return dict(doc.get("interactions", {}))
 
-    def review(self, reviewer_id: str, context: str) -> dict:
+    def review(self, reviewer_id: str, context: str, *, tools: list[dict] | None = None) -> dict:
         key = interaction_key(reviewer_id, context)
         if self.mode == "replay":
             entry = self._data.get(key)
@@ -72,8 +72,13 @@ class CassetteProvider:
                     "the cassette is stale — re-record it against the fixture."
                 )
             return entry["response"]
-        # record mode — make the real call, remember it
-        response = self.inner.review(reviewer_id, context)
+        # record mode — make the real call, remember it. The cassette key is
+        # deliberately (reviewer_id, context) only, NOT tools: eval fixtures are
+        # recorded fully isolated (tools default empty end to end), so a replay
+        # never needs to disambiguate on tool set. If a cassette is ever
+        # recorded with tools granted, note that here explicitly rather than
+        # silently widening the key.
+        response = self.inner.review(reviewer_id, context, tools=tools)
         self._data[key] = {"reviewer_id": reviewer_id, "response": response}
         return response
 
