@@ -347,6 +347,92 @@ def test_anthropic_provider_passes_tools_kwarg_when_permitted_nonempty():
     assert fake_client.messages.create_kwargs["tools"] == permitted
 
 
+# --- model precedence (issue #86) ------------------------------------------- #
+# review() lets a caller state the model at the call site. The resolved model
+# must reach client.messages.create(model=...); assert it against a fake client
+# injected past the lazy SDK import (no live API, no key).
+
+
+class _RecordingAnthropic(panel.AnthropicProvider):
+    """AnthropicProvider whose lazy SDK client is a _FakeClient recording the
+    `model` that reaches messages.create."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._client = _FakeClient()
+
+
+@pytest.fixture
+def recording_default(monkeypatch):
+    """Make review()'s default provider a recording AnthropicProvider and expose
+    the instance review() constructs, so a test can read its create_kwargs."""
+    created = []
+
+    def _factory(*args, **kwargs):
+        provider = _RecordingAnthropic(*args, **kwargs)
+        created.append(provider)
+        return provider
+
+    monkeypatch.setattr(panel, "AnthropicProvider", _factory)
+    return created
+
+
+def _model_seen(provider):
+    return provider._client.messages.create_kwargs["model"]
+
+
+def test_model_kwarg_reaches_messages_create(repo, recording_default, monkeypatch):
+    # Rung 1: an explicit model= reaches client.messages.create(model=...).
+    monkeypatch.delenv("ZENODOTUS_MODEL", raising=False)
+    panel.review(str(repo), n_reviewers=1, model="claude-sonnet-5")
+    assert recording_default[0].model == "claude-sonnet-5"
+    assert _model_seen(recording_default[0]) == "claude-sonnet-5"
+
+
+def test_model_kwarg_beats_env(repo, recording_default, monkeypatch):
+    # Rung 1 > rung 3: model= wins even when ZENODOTUS_MODEL is set.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-opus-4-8")
+    panel.review(str(repo), n_reviewers=1, model="claude-sonnet-5")
+    assert _model_seen(recording_default[0]) == "claude-sonnet-5"
+
+
+def test_env_beats_default_when_no_model_kwarg(repo, recording_default, monkeypatch):
+    # Rung 3 > rung 4: ZENODOTUS_MODEL is honoured (read live) with no model=.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-haiku-4-5")
+    panel.review(str(repo), n_reviewers=1)
+    assert _model_seen(recording_default[0]) == "claude-haiku-4-5"
+
+
+def test_default_model_when_nothing_set(repo, recording_default, monkeypatch):
+    # Rung 4: with no model= and no env, the built-in default is used, unchanged.
+    monkeypatch.delenv("ZENODOTUS_MODEL", raising=False)
+    panel.review(str(repo), n_reviewers=1)
+    assert _model_seen(recording_default[0]) == "claude-opus-4-8"
+
+
+def test_passed_provider_model_beats_env(repo, monkeypatch):
+    # Rung 2 > rung 3: an explicitly passed provider's own model stands, even
+    # when ZENODOTUS_MODEL is set; review() never touches a supplied provider.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-haiku-4-5")
+    provider = _RecordingAnthropic(model="caller-configured-model")
+    panel.review(str(repo), n_reviewers=1, provider=provider)
+    assert _model_seen(provider) == "caller-configured-model"
+
+
+def test_model_and_provider_together_raises(repo):
+    # Passing both is not silently ambiguous — it raises (chosen behavior).
+    provider = StubProvider([_GO])
+    with pytest.raises(ValueError, match="not both"):
+        panel.review(
+            str(repo), n_reviewers=1, provider=provider, model="claude-sonnet-5"
+        )
+
+
+def test_default_model_split_preserves_literal():
+    # The env/default split (issue #86) leaves DEFAULT_MODEL's value unchanged.
+    assert panel.DEFAULT_MODEL == "claude-opus-4-8"
+
+
 def test_gather_context_includes_public_files_only(repo):
     ctx = panel.gather_context(str(repo))
     assert "README" in ctx

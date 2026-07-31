@@ -150,6 +150,25 @@ finding never blocks — you opt into blocking with `--fail-on blocker`. The
 deterministic floor (missing license, leaked secret) is a hard gate and blocks
 regardless.
 
+### Library (Python)
+
+```python
+from zenodotus.panel import review
+
+# Default provider (Claude), library's default model:
+panel = review("/path/to/repo")
+
+# State the model at the call site — no env var, no hand-built provider:
+panel = review("/path/to/repo", model="claude-sonnet-5")
+```
+
+`model` resolves with the precedence (highest first): an explicit `model=`
+kwarg → an explicitly passed `provider=`'s own configured model → the
+`ZENODOTUS_MODEL` env var → the built-in default (`claude-opus-4-8`). Passing
+**both** `model=` and a caller-built `provider=` raises `ValueError` — a
+supplied provider owns its own model. To run a specific model on a custom
+provider, configure it on that provider before passing it.
+
 ### Shadow mode (recommended for accumulating evidence)
 
 ```bash

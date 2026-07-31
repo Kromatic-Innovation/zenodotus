@@ -27,8 +27,13 @@ from typing import Protocol
 from . import discovery_log, fileset, isolation
 from .discovery_log import CATEGORIES, Discovery
 
-# Default provider model. Overridable via env; the issue calls for "latest model".
-DEFAULT_MODEL = os.environ.get("ZENODOTUS_MODEL", "claude-opus-4-8")
+# Default provider model. The two rungs are split (issue #86) so review()'s
+# `model=` precedence can distinguish "the ZENODOTUS_MODEL env var" from "the
+# library's built-in default" — collapsing them into one `os.environ.get(...,
+# default)` expression would make those two rungs indistinguishable. The
+# literal default is unchanged: still ``claude-opus-4-8`` when the env is unset.
+_ENV_MODEL = os.environ.get("ZENODOTUS_MODEL")
+DEFAULT_MODEL = _ENV_MODEL or "claude-opus-4-8"
 
 
 def _iso_now() -> str:
@@ -390,6 +395,7 @@ def review(
     at: str | None = None,
     repo_name: str | None = None,
     reviewer_tools: dict | list[str] | None = None,
+    model: str | None = None,
 ) -> PanelReview:
     """Run ``n_reviewers`` no-context reviewers over ``path`` and aggregate.
 
@@ -397,6 +403,25 @@ def review(
     context, independently). Every finding not already caught by a deterministic
     gate is appended to the discovery log at ``log_path`` (if given) with
     ``missed_by_deterministic=True``.
+
+    ``model`` (issue #86) states the Claude model for the panel at the call site,
+    mirroring how ``reviewer_tools`` is resolved here and applied at the provider
+    boundary — the :class:`Provider` protocol deliberately knows nothing about
+    models, so this configures the default :class:`AnthropicProvider` rather than
+    threading a model through the protocol. Precedence, highest first:
+
+    1. an explicit ``model=`` kwarg,
+    2. an explicitly passed ``provider=``'s own configured model,
+    3. the ``ZENODOTUS_MODEL`` environment variable,
+    4. :data:`DEFAULT_MODEL` (``"claude-opus-4-8"``).
+
+    Passing **both** ``model=`` and a caller-constructed ``provider=`` raises
+    ``ValueError``: a caller-supplied provider owns its own model, and the
+    protocol exposes no model concept, so ``model=`` cannot be reliably applied
+    to an arbitrary provider — refusing the combination is louder than silently
+    honouring it only for :class:`AnthropicProvider`. To run a specific model on
+    the default provider, pass ``model=`` without ``provider=``; to control the
+    model on a custom provider, configure it on that provider before passing it.
 
     ``at`` is the ISO-8601 timestamp stamped onto discovery-log entries; the
     caller supplies it so the log stays deterministic (discovery_log never reads
@@ -413,8 +438,28 @@ def review(
     generated at call time — never an empty string — so a library caller's
     isolation record always satisfies ``docs/PANEL_VERDICT_SPEC.md`` §1.3.
     """
+    if provider is not None and model is not None:
+        raise ValueError(
+            "Pass either `model=` or a pre-constructed `provider=`, not both: a "
+            "caller-supplied provider owns its own model, and the Provider "
+            "protocol has no model concept, so `model=` cannot be applied to it. "
+            "To run a specific model on the default provider, pass `model=` "
+            "without `provider=`; to control the model on a custom provider, "
+            "configure it on that provider before passing it."
+        )
     if provider is None:
-        provider = AnthropicProvider()
+        # Model precedence (issue #86), highest first: explicit `model=` kwarg >
+        # ZENODOTUS_MODEL env var > DEFAULT_MODEL literal. (Rung 2 — a passed
+        # provider's own model — is handled above: when a provider is supplied
+        # we never reach here, so its configured model stands unmodified.) The
+        # env var is read live so a caller (or test) that sets it after import
+        # is honoured, rather than only its import-time snapshot in DEFAULT_MODEL.
+        effective_model = (
+            model
+            if model is not None
+            else os.environ.get("ZENODOTUS_MODEL") or DEFAULT_MODEL
+        )
+        provider = AnthropicProvider(model=effective_model)
     if consensus is None:
         consensus = any_blocker_no_go
     if log_path is not None and at is None:
