@@ -104,51 +104,87 @@ RULES=(
 
 RULE_COUNT="${#RULES[@]}"
 
-# --- Canary: before trusting a clean verdict, prove the scan path itself
-# actually catches a known-bad seed. Guards two fail-open shapes: BSD sed's
-# \b silently behaving as a no-op, and a '|'-joined alternation silently
-# aborting the whole expression. Both exit 0 and look like they ran.
+# --- Per-rule canary: before trusting a clean verdict, prove that EVERY
+# rule still matches a known-bad seed of its OWN. Guards two fail-open shapes
+# per rule: BSD sed's \b silently behaving as a no-op, and a '|'-joined
+# alternation silently aborting the whole expression. Both exit 0 and look
+# like they ran.
+#
+# This is deliberately per-rule, not suite-aggregate (cwc#2025). A canary
+# that probes rules only until the first one matches, then stops, cannot
+# tell "all N rules live" from "rule 1 lives and rules 2..N silently went
+# dead" -- it reports "matched at least one of N", a numerator with the
+# denominator printed next to it as if the two were equal. That is exactly
+# the silent-pass shape this scanner exists to prevent, reappearing inside
+# the guard meant to prevent it. So each rule is probed independently
+# against only its own seed, and any rule that fails to match is NAMED and
+# fails the whole run -- a bare "canary failed" would reproduce the same
+# numerator-only reporting.
+#
+# Every seed is assembled from sub-fragments rather than written as a single
+# contiguous literal. This script is copied verbatim into adopting repos and
+# scanned along with everything else (the run step is fixed:
+# `bash public-safe-lint.sh .`) -- a seed that appeared as a matchable
+# literal in this file's own source would make the script flag ITSELF on
+# every adopting repo, permanently failing the required check even on an
+# otherwise-clean tree. Splitting the fragments keeps each *assembled*
+# runtime seed a faithful known-bad value (it still matches its rule once
+# written to a seed file) while no source line here matches any rule.
+#
+# SEEDS is index-aligned with RULES: SEEDS[i] is a line that rule i, and
+# rule i alone, is required to match. Adding a rule above WITHOUT adding its
+# seed here trips the count guard below -- a new rule cannot ship unvouched.
+_seed_users_a='/Us';        _seed_users_b='ers/exampleuser/scratch/file.txt'
+_seed_home_a='/ho';         _seed_home_b='me/exampleuser/scratch/file.txt'
+_seed_tilde_a='~';          _seed_tilde_b='/scratch/local/notes.txt'
+_seed_hash='#';             _seed_issue_digits='4321'
+_seed_email_local='tester'; _seed_email_rest='+canary@example.com'
+_seed_aw_a='agreed wi';     _seed_aw_b='th ABC'
+_seed_pr_a='per Exam';      _seed_pr_b="ple's request"
+SEEDS=(
+  "seed users: ${_seed_users_a}${_seed_users_b}"
+  "seed home:  ${_seed_home_a}${_seed_home_b}"
+  "seed tilde: ${_seed_tilde_a}${_seed_tilde_b}"
+  "seed ref:   bare ${_seed_hash}${_seed_issue_digits} with no qualifier"
+  "seed email: ${_seed_email_local}${_seed_email_rest}"
+  "seed attr:  note ${_seed_aw_a}${_seed_aw_b} here"
+  "seed per:   x ${_seed_pr_a}${_seed_pr_b} today"
+)
+
+if [ "${#SEEDS[@]}" -ne "$RULE_COUNT" ]; then
+  echo "CANARY MISCONFIGURED: ${#SEEDS[@]} seed(s) defined for $RULE_COUNT rule(s) in $SCRIPT_NAME." >&2
+  echo "Every rule in RULES must have exactly one known-bad seed in SEEDS -- refusing to trust a clean verdict." >&2
+  exit 1
+fi
+
 _canary_dir="$(mktemp -d)"
 trap 'rm -rf "$_canary_dir"' EXIT
-# The known-bad shapes below are assembled from sub-fragments rather than
-# written as a single contiguous literal. This script is copied verbatim
-# into adopting repos and scanned along with everything else (the run step
-# is fixed: `bash public-safe-lint.sh .`) -- a canary seed that appears as
-# a matchable literal in this file's own source would make the script flag
-# itself on every adopting repo, permanently failing the required check
-# even on an otherwise-clean tree. Splitting the fragments keeps the
-# *assembled* runtime string a faithful known-bad seed (it still matches
-# each rule once written to canary.txt) while the source line itself does
-# not.
-_seed_path_prefix='/Us'
-_seed_path_suffix='ers/exampleuser/scratch/file.txt'
-_seed_hash='#'
-_seed_issue_digits='4321'
-_seed_email_local='tester'
-_seed_email_rest='+canary@example.com'
-{
-  echo "canary line one: ${_seed_path_prefix}${_seed_path_suffix}"
-  echo "canary line two: bare ref ${_seed_hash}${_seed_issue_digits} with no qualifier"
-  echo "canary line three: ${_seed_email_local}${_seed_email_rest}"
-} > "$_canary_dir/canary.txt"
 
-_canary_hit=0
-for rule in "${RULES[@]}"; do
-  IFS=$'\t' read -r _name _pattern _wb <<<"$rule"
-  flags=(-rIniE)
+# Probe each rule against ONLY its own seed file, so one rule's seed can
+# never vouch for a different rule that has silently gone dead.
+_dead_rules=()
+for i in "${!RULES[@]}"; do
+  IFS=$'\t' read -r _name _pattern _wb <<<"${RULES[$i]}"
+  _seed_file="$_canary_dir/seed_${i}.txt"
+  printf '%s\n' "${SEEDS[$i]}" > "$_seed_file"
+  flags=(-IniE)
   [ "$_wb" = "1" ] && flags+=(-w)
-  if grep "${flags[@]}" "$_pattern" "$_canary_dir" >/dev/null 2>&1; then
-    _canary_hit=1
-    break
+  if ! grep "${flags[@]}" "$_pattern" "$_seed_file" >/dev/null 2>&1; then
+    _dead_rules+=("$_name")
   fi
 done
 
-if [ "$_canary_hit" -ne 1 ]; then
-  echo "CANARY FAILED: known-bad seed did not match any rule in $SCRIPT_NAME." >&2
-  echo "The scan path itself is broken -- refusing to trust a clean verdict." >&2
+if [ "${#_dead_rules[@]}" -ne 0 ]; then
+  echo "CANARY FAILED: ${#_dead_rules[@]} of $RULE_COUNT rule(s) no longer match their known-bad seed in $SCRIPT_NAME:" >&2
+  for _dr in "${_dead_rules[@]}"; do
+    echo "  - dead rule: $_dr (matched nothing -- it would pass silently over a real leak of this shape)" >&2
+  done
+  echo "The scanner is partially blind -- refusing to trust a clean verdict." >&2
+  rm -rf "$_canary_dir"
+  trap - EXIT
   exit 1
 fi
-echo "canary: ok (known-bad seed matched at least one of $RULE_COUNT loaded rule(s))"
+echo "canary: ok (all $RULE_COUNT rule(s) matched their own known-bad seed)"
 rm -rf "$_canary_dir"
 trap - EXIT
 
