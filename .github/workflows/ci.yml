@@ -34,11 +34,26 @@ jobs:
       - run: pip install -e .
       - run: python -m zenodotus.leakcheck .
 
+  # Public-safe lint (org-wide canonical template, issue #93): org-agnostic
+  # file-shape scanner (absolute home paths, bare issue refs, +alias emails,
+  # personal-attribution phrases). Runs on pull_request including fork PRs
+  # with no secret required. Distinct from leak-check above: leak-check is
+  # zenodotus's own product feature (dev-path + internal-hostname denylist,
+  # extensible per-repo via .zenodotus-leakcheck.txt) that predates and is
+  # kept alongside this org-wide check rather than replaced by it -- see the
+  # adoption PR body for the reconciliation rationale.
+  public-safe-lint:
+    name: Public-safe lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/public-safe-lint.sh .
+
   # Aggregate gate (org standard): a single required check named "CI Required"
   # that summarizes the real CI jobs, fail-closed.
   ci-required:
     name: CI Required
-    needs: [test, leak-check]
+    needs: [test, leak-check, public-safe-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -46,9 +61,10 @@ jobs:
         env:
           TEST_RESULT: ${{ needs.test.result }}
           LEAK_RESULT: ${{ needs.leak-check.result }}
+          LINT_RESULT: ${{ needs.public-safe-lint.result }}
         run: |
-          echo "test=$TEST_RESULT leak-check=$LEAK_RESULT"
-          for r in "$TEST_RESULT" "$LEAK_RESULT"; do
+          echo "test=$TEST_RESULT leak-check=$LEAK_RESULT public-safe-lint=$LINT_RESULT"
+          for r in "$TEST_RESULT" "$LEAK_RESULT" "$LINT_RESULT"; do
             case "$r" in
               success|skipped) ;;
               *) echo "::error::CI job result '$r' is not green"; exit 1 ;;
