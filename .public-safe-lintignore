@@ -1,0 +1,38 @@
+# public-safe-lint suppressions for zenodotus (adoption tracked in the repo's
+# public-safe-lint adoption issue).
+#
+# bare-issue-ref: zenodotus's own source, tests, and docs comments and
+# docstrings routinely cite THIS repo's own public GitHub issue tracker --
+# those references resolve correctly on this repo's own GitHub page and are
+# not leaks. New files in these directories will keep adding legitimate
+# same-repo issue references as normal development continues, so
+# directory-level globs (not a repo-root wildcard) are used here rather than
+# hand-listing every current hit file -- narrower than the alternative of
+# re-editing this file on every future PR that cites an issue number in a
+# new file, while everything outside these directories (top-level configs,
+# new top-level files, workflow files other than ci.yml) stays fully
+# covered by the rule.
+bare-issue-ref src/zenodotus/**
+bare-issue-ref tests/**
+bare-issue-ref docs/**
+bare-issue-ref README.md
+bare-issue-ref CHANGELOG.md
+bare-issue-ref .github/workflows/ci.yml
+
+# tilde-rooted-path / local-absolute-path-users: zenodotus IS a leak-check
+# tool. Its test suite deliberately writes leak-shaped sample paths as test
+# INPUTS for its own scanner module, and that scanner module's own default
+# pattern table literally contains the home-relative-path shape it is built
+# to detect. Scoped to the exact two files that need it -- no other file in
+# the tree is exempted from these two rules.
+tilde-rooted-path tests/test_leakcheck.py
+local-absolute-path-users tests/test_leakcheck.py
+tilde-rooted-path src/zenodotus/leakcheck.py
+
+# This ignore file's own comments above describe (in prose, without
+# reproducing the literal shapes) the exemptions it grants; the entry
+# lines below are its content, not a leak. Self-exemption is scoped to
+# this single file only.
+bare-issue-ref .public-safe-lintignore
+tilde-rooted-path .public-safe-lintignore
+local-absolute-path-users .public-safe-lintignore
