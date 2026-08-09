@@ -155,19 +155,32 @@ regardless.
 ```python
 from zenodotus.panel import review
 
-# Default provider (Claude), library's default model:
-panel = review("/path/to/repo")
-
 # State the model at the call site — no env var, no hand-built provider:
 panel = review("/path/to/repo", model="claude-sonnet-5")
 ```
 
+**There is no built-in default model.** Zenodotus runs one review per reviewer,
+so the model choice is a cost decision — and it is yours, not this library's.
 `model` resolves with the precedence (highest first): an explicit `model=`
 kwarg → an explicitly passed `provider=`'s own configured model → the
-`ZENODOTUS_MODEL` env var → the built-in default (`claude-opus-4-8`). Passing
-**both** `model=` and a caller-built `provider=` raises `ValueError` — a
-supplied provider owns its own model. To run a specific model on a custom
+`ZENODOTUS_MODEL` env var → **`ValueError`**. The Anthropic SDK resolves
+credentials from the environment but never a model, so there is nothing ambient
+to inherit; erroring is louder than calling the API with an unset model.
+
+Passing **both** `model=` and a caller-built `provider=` raises `ValueError` —
+a supplied provider owns its own model. To run a specific model on a custom
 provider, configure it on that provider before passing it.
+
+Current model ids are listed in the [Anthropic models
+overview](https://platform.claude.com/docs/en/about-claude/models/overview).
+
+**On the CLI**, set `ZENODOTUS_MODEL` — the CLI has no `--model` flag, so this
+is how you state the model for `zenodotus review`:
+
+```bash
+export ZENODOTUS_MODEL=claude-sonnet-5
+zenodotus review .
+```
 
 ### Shadow mode (recommended for accumulating evidence)
 

@@ -483,3 +483,38 @@ def test_isolation_key_present_and_empty_when_floor_fails(tmp_path):
         provider=StubProvider(_GO), now=NOW,
     )
     assert result["isolation"] == {"tools": [], "denied": []}
+
+
+# --- no resolvable model (issue #87) ----------------------------------------- #
+
+
+def test_unresolvable_model_exits_2_with_a_message_not_a_traceback(
+    tmp_path, capsys, monkeypatch
+):
+    """Removing the built-in default must not turn `zenodotus review` into a
+    traceback (issue #87).
+
+    The CLI builds the default provider and has no `--model` flag, so with
+    `ZENODOTUS_MODEL` unset there is no resolvable model. That is a
+    configuration error the caller can fix, so it exits 2 ("could not run" —
+    distinct from 1, "ran, and the verdict blocks") after printing the
+    actionable message on stderr.
+    """
+    monkeypatch.delenv("ZENODOTUS_MODEL", raising=False)
+    d = _clean_repo(tmp_path)
+    code = main(["review", str(d), "--reviewers", "1", "--log", ""], now=NOW)
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "No model is resolvable" in captured.err
+    assert "ZENODOTUS_MODEL" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_zenodotus_model_env_lets_the_cli_run(tmp_path, capsys, monkeypatch):
+    # The other half of the contract: setting the env var is a sufficient fix.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-sonnet-5")
+    d = _clean_repo(tmp_path)
+    code = main(["review", str(d), "--reviewers", "1", "--log", ""],
+                provider=StubProvider(_GO), now=NOW)
+    assert code == 0
+    assert "VERDICT: PASS" in capsys.readouterr().out

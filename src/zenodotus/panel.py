@@ -3,7 +3,9 @@
 N independent reviewers, each blind to the others and to internal context, judge
 the parts deterministic gates cannot: coherence, naming, scope, leakage,
 usefulness, doc quality. Provider-agnostic; the default provider is Anthropic
-Claude (latest model). Returns per-reviewer verdicts + a consensus.
+Claude, running whichever model the caller resolves (there is no built-in
+default model — see the model-resolution note below). Returns per-reviewer
+verdicts + a consensus.
 
 Every panel finding NOT already caught by a deterministic gate is recorded via
 ``discovery_log.append`` with ``missed_by_deterministic=True`` — this log is the
@@ -27,13 +29,50 @@ from typing import Protocol
 from . import discovery_log, fileset, isolation
 from .discovery_log import CATEGORIES, Discovery
 
-# Default provider model. The two rungs are split (issue #86) so review()'s
-# `model=` precedence can distinguish "the ZENODOTUS_MODEL env var" from "the
-# library's built-in default" — collapsing them into one `os.environ.get(...,
-# default)` expression would make those two rungs indistinguishable. The
-# literal default is unchanged: still ``claude-opus-4-8`` when the env is unset.
-_ENV_MODEL = os.environ.get("ZENODOTUS_MODEL")
-DEFAULT_MODEL = _ENV_MODEL or "claude-opus-4-8"
+# Model resolution (issues #86, #87). There is NO library-level default model:
+# zenodotus does not pick a model tier — and so a per-review cost, multiplied by
+# N reviewers — on the consumer's behalf. A hardcoded pin also drifts silently
+# (the retired one claimed to be "the latest model" while naming an older one,
+# and nothing failed when that stopped being true).
+#
+# `review()` resolves the model at call time, highest rung first:
+#
+#   1. an explicit ``model=`` kwarg,
+#   2. an explicitly passed ``provider=``'s own configured model,
+#   3. the ``ZENODOTUS_MODEL`` environment variable,
+#   4. nothing resolvable — :func:`_resolve_model` raises ``ValueError``.
+#
+# Rung 4 is deliberately an error rather than a fallback. The Anthropic SDK
+# resolves *credentials* from the environment but never a *model* — `model` is
+# a required argument on every `messages.create` call — so there is no ambient
+# model to inherit. Proceeding with an unset model would surface far away from
+# the cause, as an SDK-level error on the first reviewer call.
+#
+# Rung 3 is read live rather than snapshotted at import, so a caller (or test)
+# that sets the env var after importing this module is still honoured.
+_MODEL_ENV_VAR = "ZENODOTUS_MODEL"
+
+
+def _resolve_model(model: str | None = None) -> str:
+    """Resolve the model for the default provider, or raise (issue #87).
+
+    Applies rungs 1, 3 and 4 of the precedence documented above. Rung 2 (an
+    explicitly passed provider's own model) never reaches here — ``review()``
+    leaves a supplied provider untouched.
+    """
+    resolved = model or os.environ.get(_MODEL_ENV_VAR)
+    if not resolved:
+        raise ValueError(
+            "No model is resolvable for zenodotus's default Anthropic provider. "
+            "This library has no built-in default model — it deliberately does "
+            "not choose a model tier (and the per-review cost that follows from "
+            "it) on your behalf. Resolve it in one of these ways: pass "
+            '`model="<model-id>"` to review(); set the ZENODOTUS_MODEL '
+            "environment variable; or pass a pre-configured `provider=`. "
+            "Current model ids: "
+            "https://platform.claude.com/docs/en/about-claude/models/overview"
+        )
+    return resolved
 
 
 def _iso_now() -> str:
@@ -193,7 +232,11 @@ class Provider(Protocol):
 
 
 class AnthropicProvider:
-    """Default provider — Anthropic Claude, latest model. Lazily imports the SDK.
+    """Default provider — Anthropic Claude. Lazily imports the SDK.
+
+    ``model`` is required in effect but not in signature: omit it and it
+    resolves from ``ZENODOTUS_MODEL``, or raises ``ValueError`` if that is unset
+    (issue #87). There is no built-in default model.
 
     ``requested_tools`` is the tool declarations this provider WOULD LIKE to
     offer the model (Anthropic API tool-schema dicts) — empty by default, so
@@ -205,11 +248,15 @@ class AnthropicProvider:
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
+        model: str | None = None,
         api_key: str | None = None,
         requested_tools: list[dict] | None = None,
     ):
-        self.model = model
+        # No default literal (issue #87): an omitted `model` falls through to
+        # ZENODOTUS_MODEL, and raises ValueError if that is unset too — the
+        # constructor is the last point where "which model?" is still an
+        # answerable question with an actionable error.
+        self.model = _resolve_model(model)
         self._api_key = api_key
         self._client = None
         self.requested_tools = list(requested_tools or [])
@@ -413,7 +460,9 @@ def review(
     1. an explicit ``model=`` kwarg,
     2. an explicitly passed ``provider=``'s own configured model,
     3. the ``ZENODOTUS_MODEL`` environment variable,
-    4. :data:`DEFAULT_MODEL` (``"claude-opus-4-8"``).
+    4. nothing — ``ValueError``. There is no built-in default model (issue
+       #87): zenodotus does not choose a model tier, and the per-review cost
+       that follows from it, for its consumers. See :func:`_resolve_model`.
 
     Passing **both** ``model=`` and a caller-constructed ``provider=`` raises
     ``ValueError``: a caller-supplied provider owns its own model, and the
@@ -448,18 +497,12 @@ def review(
             "configure it on that provider before passing it."
         )
     if provider is None:
-        # Model precedence (issue #86), highest first: explicit `model=` kwarg >
-        # ZENODOTUS_MODEL env var > DEFAULT_MODEL literal. (Rung 2 — a passed
-        # provider's own model — is handled above: when a provider is supplied
-        # we never reach here, so its configured model stands unmodified.) The
-        # env var is read live so a caller (or test) that sets it after import
-        # is honoured, rather than only its import-time snapshot in DEFAULT_MODEL.
-        effective_model = (
-            model
-            if model is not None
-            else os.environ.get("ZENODOTUS_MODEL") or DEFAULT_MODEL
-        )
-        provider = AnthropicProvider(model=effective_model)
+        # Rungs 1, 3 and 4 of the precedence (issues #86, #87) are applied by
+        # AnthropicProvider via _resolve_model: explicit `model=` kwarg >
+        # ZENODOTUS_MODEL (read live) > ValueError. Rung 2 — a passed provider's
+        # own model — is handled above: when a provider is supplied we never
+        # reach here, so its configured model stands unmodified.
+        provider = AnthropicProvider(model=model)
     if consensus is None:
         consensus = any_blocker_no_go
     if log_path is not None and at is None:

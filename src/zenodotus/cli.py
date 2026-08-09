@@ -274,7 +274,22 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
     if args.command == "review":
         if args.log == "":
             args.log = None
-        result = _run_review(args, provider=provider, now=now)
+        try:
+            result = _run_review(args, provider=provider, now=now)
+        except ValueError as exc:
+            # Configuration errors the caller can act on (today: no resolvable
+            # model, issue #87) are the user's problem to fix, not a zenodotus
+            # crash — print the message, not a traceback. The CLI has no
+            # --model flag, so add the CLI-shaped route to the library-shaped
+            # message. Exit 2 = "could not run", distinct from 1 = "ran, and
+            # the verdict blocks".
+            print(f"zenodotus: {exc}", file=sys.stderr)
+            print(
+                "\nOn the CLI, set the environment variable:\n"
+                "    export ZENODOTUS_MODEL=<model-id>",
+                file=sys.stderr,
+            )
+            return 2
         if args.as_json:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:

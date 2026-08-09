@@ -17,6 +17,48 @@ commitment and stays unused, so MINOR and PATCH do double duty:
   entry therefore states its breaking status explicitly**, rather than leaving
   the version number to imply it.
 
+## [Unreleased]
+
+### Breaking-change status
+
+**Breaking for anyone who relied on the implicit default model.** Per the
+versioning convention above this lands as a **MINOR** bump when released.
+
+### Removed
+
+- **No built-in default model** ([#87](https://github.com/Kromatic-Innovation/zenodotus/issues/87)).
+  `panel.DEFAULT_MODEL` and its hardcoded `claude-opus-4-8` literal are gone.
+  Zenodotus runs one model call per reviewer, so the model choice is a cost
+  decision — and it belongs to the consumer, not to this library. The retired
+  pin also drifted silently: its comment said "latest model" while the value
+  named an older one, and no test failed when that stopped being true.
+
+  **What changes for you.** `review()` resolves the model highest-rung-first:
+  an explicit `model=` kwarg → an explicitly passed `provider=`'s own
+  configured model → the `ZENODOTUS_MODEL` environment variable → **a
+  `ValueError` naming every one of those routes**. Previously the last rung was
+  the built-in literal, so a call with none of the above silently ran
+  `claude-opus-4-8`.
+
+  **Migrating.** Pass `model="<model-id>"` to `review()`, or export
+  `ZENODOTUS_MODEL`, or hand `review()` a pre-configured `provider=`. Callers
+  who were happy with the old behaviour can restore it exactly with
+  `ZENODOTUS_MODEL=claude-opus-4-8` — though [current model
+  ids](https://platform.claude.com/docs/en/about-claude/models/overview) are
+  worth a look first, since the old pin was already stale.
+
+  **CLI users are affected too.** `zenodotus review` builds the default
+  provider and has no `--model` flag, so it now requires `ZENODOTUS_MODEL` to
+  be set. With it unset the command prints the actionable message and exits
+  **2** — "could not run", distinct from the existing exit 1, "ran, and the
+  verdict blocks". The three-state pass/warn/block exit contract
+  (`docs/PANEL_VERDICT_SPEC.md` §1) is unchanged for runs that actually
+  execute. Erroring up front was chosen over inheriting an ambient model: the
+  Anthropic SDK resolves credentials from the environment but never a model
+  (`model` is required on every `messages.create` call), so there is nothing
+  ambient to fall through to — and an unset model would otherwise surface as a
+  confusing SDK-level failure on the first reviewer call.
+
 ## [0.3.0] - 2026-07-27
 
 Minor release: reviewer tool isolation is now structurally enforced, not

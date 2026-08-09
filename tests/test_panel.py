@@ -296,8 +296,8 @@ def test_no_log_path_still_returns_discoveries(repo):
 
 def test_default_provider_does_not_need_sdk_at_import():
     # constructing the provider must not import anthropic or need a key
-    p = panel.AnthropicProvider()
-    assert p.model  # e.g. "claude-opus-4-8"
+    p = panel.AnthropicProvider(model="claude-opus-5")
+    assert p.model == "claude-opus-5"
     assert p._client is None
 
 
@@ -331,7 +331,7 @@ class _FakeClient:
 
 
 def test_anthropic_provider_omits_tools_kwarg_when_permitted_is_empty():
-    provider = panel.AnthropicProvider()
+    provider = panel.AnthropicProvider(model="claude-opus-5")
     fake_client = _FakeClient()
     provider._client = fake_client  # bypass the lazy anthropic import
     provider.review("reviewer-1", "context", tools=[])
@@ -339,7 +339,7 @@ def test_anthropic_provider_omits_tools_kwarg_when_permitted_is_empty():
 
 
 def test_anthropic_provider_passes_tools_kwarg_when_permitted_nonempty():
-    provider = panel.AnthropicProvider()
+    provider = panel.AnthropicProvider(model="claude-opus-5")
     fake_client = _FakeClient()
     provider._client = fake_client
     permitted = [{"name": "recall"}]
@@ -403,11 +403,44 @@ def test_env_beats_default_when_no_model_kwarg(repo, recording_default, monkeypa
     assert _model_seen(recording_default[0]) == "claude-haiku-4-5"
 
 
-def test_default_model_when_nothing_set(repo, recording_default, monkeypatch):
-    # Rung 4: with no model= and no env, the built-in default is used, unchanged.
+def test_no_resolvable_model_raises(repo, recording_default, monkeypatch):
+    # Rung 4 (issue #87): with no model= and no env there is NO built-in default
+    # to fall back to, so review() raises rather than calling the provider with
+    # an unset model. The Anthropic SDK resolves credentials from the
+    # environment but never a model, so there is nothing ambient to inherit —
+    # proceeding would fail later and further from the cause.
     monkeypatch.delenv("ZENODOTUS_MODEL", raising=False)
-    panel.review(str(repo), n_reviewers=1)
-    assert _model_seen(recording_default[0]) == "claude-opus-4-8"
+    with pytest.raises(ValueError, match="No model is resolvable"):
+        panel.review(str(repo), n_reviewers=1)
+    assert recording_default == []  # raised before any provider was constructed
+
+
+def test_no_resolvable_model_error_names_every_way_out(repo, monkeypatch):
+    # The error is the whole UX of removing the default — it must name each
+    # resolution route, not just say "no model".
+    monkeypatch.delenv("ZENODOTUS_MODEL", raising=False)
+    with pytest.raises(ValueError) as excinfo:
+        panel.AnthropicProvider()
+    message = str(excinfo.value)
+    assert "model=" in message  # rung 1
+    assert "ZENODOTUS_MODEL" in message  # rung 3
+    assert "provider=" in message  # rung 2
+
+
+def test_empty_env_model_is_treated_as_unset(repo, recording_default, monkeypatch):
+    # ZENODOTUS_MODEL="" must not resolve to an empty model string — an empty
+    # env var is how a shell "unsets" a variable in practice.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "")
+    with pytest.raises(ValueError, match="No model is resolvable"):
+        panel.review(str(repo), n_reviewers=1)
+
+
+def test_no_module_level_default_model_literal():
+    # Issue #87 AC1: the hardcoded default is gone, not merely unused. A stale
+    # pin drifts silently (the retired one claimed "latest model" while naming
+    # an older one), so its absence is worth pinning.
+    assert not hasattr(panel, "DEFAULT_MODEL")
+    assert not hasattr(panel, "_ENV_MODEL")
 
 
 def test_passed_provider_model_beats_env(repo, monkeypatch):
@@ -428,9 +461,18 @@ def test_model_and_provider_together_raises(repo):
         )
 
 
-def test_default_model_split_preserves_literal():
-    # The env/default split (issue #86) leaves DEFAULT_MODEL's value unchanged.
-    assert panel.DEFAULT_MODEL == "claude-opus-4-8"
+def test_env_model_is_read_live_not_snapshotted_at_import(
+    repo, recording_default, monkeypatch
+):
+    # Rung 3 is read at call time, so a caller (or test) that sets the env var
+    # after importing this module is honoured — and two reviews in one process
+    # can legitimately run different models.
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-haiku-4-5")
+    panel.review(str(repo), n_reviewers=1)
+    monkeypatch.setenv("ZENODOTUS_MODEL", "claude-sonnet-5")
+    panel.review(str(repo), n_reviewers=1)
+    assert _model_seen(recording_default[0]) == "claude-haiku-4-5"
+    assert _model_seen(recording_default[1]) == "claude-sonnet-5"
 
 
 def test_gather_context_includes_public_files_only(repo):
@@ -676,5 +718,5 @@ def test_denied_at_defaults_to_real_iso8601_for_explicit_empty_string(repo):
 
 
 def test_anthropic_provider_defaults_to_no_requested_tools():
-    p = panel.AnthropicProvider()
+    p = panel.AnthropicProvider(model="claude-opus-5")
     assert p.requested_tools == []
