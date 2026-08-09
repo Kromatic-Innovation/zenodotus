@@ -487,6 +487,11 @@ def review(
             str(t.get("name", "")) for t in permitted if t.get("name")
         )
         all_denied.extend(policy.denied)
+        # Accumulate, don't overwrite: the allowlist is panel-wide (issue #82,
+        # docs/PANEL_VERDICT_SPEC.md §1.3), so what varies between reviewers is
+        # not their *permitted* set but what the provider actually *requested*
+        # on each call. This is the sole writer of isolation["tools"] — deleting
+        # it turns PR #81's mutation test RED. Keep it.
         all_granted.update(granted_names)
 
         raw = provider.review(reviewer_id, context, tools=permitted)

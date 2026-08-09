@@ -99,5 +99,19 @@ def resolve_allowed_tools(config: dict | list[str] | None) -> frozenset[str]:
 
 
 def resolve_policy(config: dict | list[str] | None, reviewer_id: str) -> ToolPolicy:
-    """Build the effective :class:`ToolPolicy` for one reviewer from config."""
+    """Build the effective :class:`ToolPolicy` for one reviewer from config.
+
+    ``reviewer_id`` is used for **attribution only** — it stamps
+    :attr:`ToolPolicy.reviewer` so a :class:`DeniedAttempt` records which
+    reviewer made the attempt. It deliberately does NOT select the allowlist:
+    the allowlist is configured panel-wide, so two reviewers run under the same
+    ``config`` always resolve to identical ``allowed`` sets (issue #82; pinned
+    by ``test_two_reviewers_under_same_config_get_identical_allowlists``, and
+    normative in ``docs/PANEL_VERDICT_SPEC.md`` §1.3).
+
+    Per-reviewer tool scoping is therefore not offered. Adding it later would be
+    a purely additive config change (e.g. a ``reviewers.overrides.<id>.tools``
+    block) — deliberately deferred rather than baked onto a deny-by-default
+    isolation boundary for a use case no consumer has asked for.
+    """
     return ToolPolicy(reviewer=reviewer_id, allowed=resolve_allowed_tools(config))

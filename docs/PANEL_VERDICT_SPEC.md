@@ -1,6 +1,6 @@
 # Shared persona-panel verdict spec
 
-**Status:** normative · **Version:** 1.1 · **Applies to:** any synthetic
+**Status:** normative · **Version:** 1.2 · **Applies to:** any synthetic
 reviewer/persona panel in your org, in any language.
 
 This document specifies a **shared verdict shape** — a three-state verdict
@@ -152,18 +152,29 @@ isolation the verdict was actually produced under:
 - `isolation.denied` — **REQUIRED**. Attempted-but-denied tool calls; `[]`
   when none were attempted. A denied attempt **MUST** be recorded here, not
   swallowed — the attempt itself is signal about the reviewer/prompt.
-- If tool sets differ per reviewer, the top-level `isolation.tools` is the
-  **union** across all reviewers. An implementation that keeps a
+- **The allowlist is configured panel-wide, not per reviewer.** The top-level
+  `isolation.tools` is therefore the **effective** set applied uniformly across
+  every reviewer — not a union across differentiated per-reviewer
+  configuration. Implementations resolve one allowlist from config and apply it
+  to each reviewer identically, so two reviewers run under the same config
+  **MUST** resolve to identical allowlists. A reviewer identifier passed into
+  policy resolution is for **attribution** (recording which reviewer a denied
+  attempt came from), never for selecting a narrower or wider allowlist
+  ([zenodotus#82](https://github.com/Kromatic-Innovation/zenodotus/issues/82)).
+- What a reviewer is actually *granted* can still vary between calls within
+  that one allowlist, because a provider MAY request different tools each time.
+  `isolation.tools` accumulates those granted sets, which is what keeps it the
+  effective set the verdict was produced under. An implementation that keeps a
   per-reviewer record (e.g. zenodotus's `ReviewerVerdict`) **SHOULD** also
   expose that reviewer's own effective tool set on the record, under an
   implementation-defined key — this spec does not pin that key's name or
   nesting, only that the top-level `isolation` block above is present and
   correct.
 - Both implementations (zenodotus, panelist) conform to this shape as of spec
-  version 1.1.
+  version 1.2.
 
 > **zenodotus mapping (informative).** `PanelReview.isolation` is the §1.3
-> block verbatim (union `tools`, flat `denied` list). Each
+> block verbatim (effective `tools`, flat `denied` list). Each
 > `ReviewerVerdict` additionally carries its own effective set as a plain
 > `tools: list[str]` field (not nested under `isolation`) — an
 > implementation-defined choice permitted by the paragraph above.
@@ -261,6 +272,14 @@ targets.
 
 ## Changelog
 
+- **1.2** ([zenodotus#82](https://github.com/Kromatic-Innovation/zenodotus/issues/82)) —
+  clarifying: §1.3's top-level `isolation.tools` is described as the
+  **effective** set applied uniformly across reviewers, not a union across
+  differentiated per-reviewer configuration. The allowlist is panel-wide; a
+  reviewer identifier in policy resolution is for attribution only. Minor bump
+  per §4 (a clarifying rule) — no previously conformant verdict becomes
+  non-conformant, because no implementation ever offered per-reviewer allowlist
+  configuration.
 - **1.1** ([zenodotus#79](https://github.com/Kromatic-Innovation/zenodotus/issues/79)) —
   additive: new §1.3 Isolation record (`isolation.tools` / `isolation.denied`)
   as a top-level verdict key, so a reader can see what tool isolation a
