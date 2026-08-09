@@ -57,6 +57,30 @@ def test_resolve_policy_honors_explicit_allowlist():
     assert policy.allowed == frozenset({"recall"})
 
 
+def test_two_reviewers_under_same_config_get_identical_allowlists():
+    """`reviewer_id` is attribution only — it never selects the allowlist (#82).
+
+    The allowlist is configured panel-wide, so every reviewer under one config
+    resolves to the same `allowed` set; only `reviewer` differs. This pins the
+    behaviour `docs/PANEL_VERDICT_SPEC.md` §1.3 documents (top-level
+    `isolation.tools` is the *effective* set, not a union across differentiated
+    per-reviewer configuration). If per-reviewer scoping is ever added, this
+    test is the one that must be revisited deliberately rather than silently.
+    """
+    for config in (
+        None,
+        {},
+        {"reviewers": {"tools": []}},
+        {"reviewers": {"tools": ["recall", "WebSearch"]}},
+        ["recall"],
+    ):
+        first = isolation.resolve_policy(config, "reviewer-1")
+        second = isolation.resolve_policy(config, "reviewer-2")
+        assert first.allowed == second.allowed, config
+        assert first.reviewer == "reviewer-1"
+        assert second.reviewer == "reviewer-2"
+
+
 # --- ToolPolicy.filter_tools ---------------------------------------------------- #
 
 
