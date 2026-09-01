@@ -26,7 +26,7 @@ Repository = "https://github.com/Kromatic-Innovation/zenodotus"
 Issues = "https://github.com/Kromatic-Innovation/zenodotus/issues"
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff==0.16.0", "pytest-cov"]
+dev = ["pytest", "ruff==0.16.5", "pytest-cov"]
 # pip-installable deterministic-floor helpers (see docs/CONCEPT.md "Tools wired").
 # The Go/Ruby binaries (gitleaks, licensee, scorecard) install out of band.
 tools = ["pyroma>=4.2", "twine>=5.0"]
