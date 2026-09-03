@@ -83,7 +83,11 @@ def shippable_files(root: str | Path) -> list[str]:
 
     Prefers ``git ls-files`` (authoritative, respects ``.gitignore``); falls back
     to a filtered walk outside a git work tree. This is the single enumeration both
-    ``leakcheck.py`` and ``panel.py`` build on, so they cannot drift.
+    ``leakcheck.py`` and ``panel.py`` build on, and the only definition of the
+    "never part of a shipped artifact" directory set (:data:`_UNTRACKED_DIRS`), so
+    they cannot drift into two notions of shipped content. ``leakcheck`` drops one
+    further, named set of paths from what it *scans* — its own ``_IGNORE_GLOBS``
+    self-exemption, documented there — and that is the whole difference (#106).
     """
     root = Path(root)
     tracked = tracked_files(root)
