@@ -147,3 +147,52 @@ def test_this_repo_is_clean():
     repo_root = Path(__file__).resolve().parent.parent
     hits = scan(repo_root)
     assert hits == [], f"leak-check found internal markers in this repo: {hits}"
+
+
+def test_tracked_build_artifact_with_leak_is_scanned(tmp_path):
+    """Regression (#106): a *tracked* build artifact is not exempt from scanning.
+
+    ``leakcheck`` used to apply a private ``_IGNORE_DIRS`` set as a second filter
+    on top of ``fileset.shippable_files``, dropping any path with a ``dist``,
+    ``build`` or ``node_modules`` component *even when git tracked it*. A
+    committed sdist/wheel carrying an absolute developer path — one of the more
+    likely places for one to end up — was therefore never scanned.
+
+    Counter-example property this test must have (#106 acceptance): reintroducing
+    that second directory filter makes this test FAIL, so it pins the behaviour
+    rather than the current shape of the code.
+    """
+    if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
+        pytest.skip("git not available")
+
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+
+    tracked = ["dist/wheel-manifest.txt", "build/lib/meta.txt", "node_modules/pkg/info.txt"]
+    for rel in tracked:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"built from ~/Code/private/{rel}\n")
+        _git(tmp_path, "add", rel)
+
+    hits = scan(tmp_path)
+    assert {h.file for h in hits} == set(tracked), (
+        f"tracked build artifacts are shipped content and must be scanned; got {hits}"
+    )
+
+
+def test_non_git_fallback_still_skips_build_dirs(tmp_path):
+    """(#106) Outside a git work tree the fallback walk still skips build/venv dirs.
+
+    Removing leakcheck's private ``_IGNORE_DIRS`` must not widen the *non-git*
+    path: there is no index to be authoritative, so ``fileset.walk_files`` keeps
+    filtering generated-artifact directories by name.
+    """
+    for rel in ("dist/wheel.txt", "build/lib.txt", ".venv/junk.py", "node_modules/x.js"):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("built from ~/Code/private/thing\n")
+    (tmp_path / "README.md").write_text("# public\n")
+
+    assert scan(tmp_path) == []

@@ -37,13 +37,14 @@ DEFAULT_DENYLIST: list[tuple[str, str]] = [
 # Default denylist-config filename (per-repo, regex per line).
 DEFAULT_DENYLIST_FILE = ".zenodotus-leakcheck.txt"
 
-# Paths never scanned: build/venv/cache noise, plus this scanner's own source and
-# the denylist config (both legitimately CONTAIN the marker patterns as literals,
-# so scanning them would self-flag). The leakcheck test file plants sample leaks.
-_IGNORE_DIRS = {
-    ".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".ruff_cache",
-    "node_modules", "dist", "build", ".mypy_cache",
-}
+# The ONE narrowing applied on top of the shared enumeration: files that
+# legitimately CONTAIN the marker patterns as literals and would otherwise
+# self-flag — this scanner's own source, the leakcheck test file (which plants
+# sample leaks), and the denylist config. Deliberately NOT a directory filter:
+# generated-artifact directories are fileset's business (its _UNTRACKED_DIRS is
+# the single definition, consulted on the non-git fallback walk), and inside a
+# git work tree a *tracked* dist/ or build/ file is shipped content that must be
+# scanned like any other (issue #106).
 _IGNORE_GLOBS = (
     "*.egg-info/*",
     "src/zenodotus/leakcheck.py",
@@ -81,11 +82,11 @@ def _iter_text_files(root: Path):
     # .gitignore) via the shared helper, so gitignored/generated local artifacts
     # (.agents/, .codex/, .tmp/, …) are never scanned and can't raise false
     # "leak" hits (issue #68). Outside a git work tree this falls back to a
-    # filtered walk. panel.py builds on the same enumeration so the two can't drift.
+    # filtered walk. panel.py consumes the same enumeration, and the only thing
+    # dropped here is _IGNORE_GLOBS (self-exemption, see above) — so the two
+    # callers reason about the same shipped file set (issue #106).
     for rel_posix in sorted(fileset.shippable_files(root)):
         rel = Path(rel_posix)
-        if set(rel.parts) & _IGNORE_DIRS:
-            continue
         if any(fnmatch.fnmatch(rel_posix, g) for g in _IGNORE_GLOBS):
             continue
         entry = root / rel
