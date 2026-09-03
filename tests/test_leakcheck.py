@@ -196,3 +196,113 @@ def test_non_git_fallback_still_skips_build_dirs(tmp_path):
     (tmp_path / "README.md").write_text("# public\n")
 
     assert scan(tmp_path) == []
+
+
+# --- the denylist exemption follows the argument, not a fixed name (issue #109)
+
+
+def test_custom_denylist_file_is_not_scanned(tmp_path):
+    """Regression (#109): the denylist config in USE is exempt, whatever its path.
+
+    ``_IGNORE_GLOBS`` used to name ``DEFAULT_DENYLIST_FILE`` literally, so a repo
+    running ``--denylist-file custom/leakcheck-rules.txt`` got its own rules file
+    enumerated and scanned as ordinary content. A denylist is a file of
+    high-signal regexes, so the more useful its entries are as leak detectors the
+    more certainly its own lines match one of them — and leakcheck gates a public
+    push, where a false positive is most expensive.
+
+    Counter-example property (#109 acceptance): this fails before the change and
+    passes after. ``acme.corp`` matches itself both as the denylist rule it
+    declares and under the built-in internal-hostname pattern.
+    """
+    rules_dir = tmp_path / "custom"
+    rules_dir.mkdir()
+    (rules_dir / "leakcheck-rules.txt").write_text("# internal hosts\nacme.corp\n")
+    (tmp_path / "clean.md").write_text("nothing internal here\n")
+
+    hits = scan(tmp_path, denylist_file="custom/leakcheck-rules.txt")
+    assert hits == [], f"the denylist config in use must not be scanned; got {hits}"
+
+
+def test_custom_denylist_file_exemption_normalizes_the_path(tmp_path):
+    """(#109) The same file given three ways resolves to the same exemption.
+
+    ``scan`` compares against a repo-relative POSIX string, so ``./x/y.txt``,
+    ``x/y.txt`` and an absolute path under the root must all name it.
+    """
+    rules_dir = tmp_path / "custom"
+    rules_dir.mkdir()
+    denylist = rules_dir / "leakcheck-rules.txt"
+    denylist.write_text("acme.corp\n")
+    (tmp_path / "clean.md").write_text("nothing internal here\n")
+
+    for spelling in (
+        "custom/leakcheck-rules.txt",
+        "./custom/leakcheck-rules.txt",
+        str(denylist),
+        denylist,
+    ):
+        assert scan(tmp_path, denylist_file=spelling) == [], f"spelling: {spelling!r}"
+
+
+def test_default_denylist_file_is_still_exempt(tmp_path):
+    """(#109) Deriving the exemption must not change the default case."""
+    (tmp_path / leakcheck.DEFAULT_DENYLIST_FILE).write_text("acme.corp\n")
+    (tmp_path / "clean.md").write_text("nothing internal here\n")
+
+    assert scan(tmp_path) == []
+    assert scan(tmp_path, denylist_file=leakcheck.DEFAULT_DENYLIST_FILE) == []
+
+
+def test_denylist_file_none_exempts_nothing_extra(tmp_path):
+    """(#109) With no denylist there is no denylist file to exempt.
+
+    The scan still runs (the built-in patterns apply), and a file that merely
+    happens to carry the default denylist NAME is ordinary content, because the
+    caller asked for no denylist at all.
+    """
+    (tmp_path / leakcheck.DEFAULT_DENYLIST_FILE).write_text("acme.corp\n")
+    (tmp_path / "notes.md").write_text("host: metrics.internal\n")
+
+    files = {h.file for h in scan(tmp_path, denylist_file=None)}
+    assert "notes.md" in files, "the scan must still run with no denylist"
+    assert leakcheck.DEFAULT_DENYLIST_FILE in files, "nothing extra may be exempt"
+
+
+def test_file_sharing_a_name_with_the_denylist_is_still_scanned(tmp_path):
+    """(#109) The exemption is the specific path in use, not a loosened pattern.
+
+    Second counter-example: a fix that widened ``_IGNORE_GLOBS`` to something like
+    ``*leakcheck-rules.txt`` would pass ``test_custom_denylist_file_is_not_scanned``
+    and fail here, silently un-scanning unrelated files.
+    """
+    rules_dir = tmp_path / "custom"
+    rules_dir.mkdir()
+    (rules_dir / "leakcheck-rules.txt").write_text("acme.corp\n")
+    # Same basename, different directory — not the file that was passed.
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "leakcheck-rules.txt").write_text("host: build.internal\n")
+    # Same directory, name sharing the passed file's suffix — also not it.
+    (rules_dir / "old-leakcheck-rules.txt").write_text("host: legacy.internal\n")
+
+    hits = scan(tmp_path, denylist_file="custom/leakcheck-rules.txt")
+    assert {h.file for h in hits} == {
+        "docs/leakcheck-rules.txt",
+        "custom/old-leakcheck-rules.txt",
+    }, f"only the denylist actually in use is exempt; got {hits}"
+
+
+def test_fixed_self_exemptions_are_unchanged(tmp_path):
+    """(#109) The three non-denylist exemptions stay exactly as they were."""
+    for rel in (
+        "pkg.egg-info/PKG-INFO",
+        "src/zenodotus/leakcheck.py",
+        "tests/test_leakcheck.py",
+    ):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("built from ~/Code/private/thing\n")
+    (tmp_path / "notes.md").write_text("path: ~/Code/also-here\n")
+
+    assert {h.file for h in scan(tmp_path)} == {"notes.md"}
