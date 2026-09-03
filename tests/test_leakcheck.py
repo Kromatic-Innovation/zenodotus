@@ -306,3 +306,33 @@ def test_fixed_self_exemptions_are_unchanged(tmp_path):
     (tmp_path / "notes.md").write_text("path: ~/Code/also-here\n")
 
     assert {h.file for h in scan(tmp_path)} == {"notes.md"}
+
+
+def test_unresolvable_denylist_path_does_not_crash_the_scan(tmp_path):
+    """(#109) A bad --denylist-file path degrades to "exempt nothing", never a crash.
+
+    ``Path.resolve`` reports a symlink loop as ``RuntimeError`` on 3.11/3.12 and
+    as ``OSError`` (ELOOP) once it delegates to ``os.path.realpath``, and
+    ``RuntimeError`` is not an ``OSError`` — so catching only ``OSError`` would
+    let an unhandled exception out of a gate that is supposed to return a verdict.
+    """
+    (tmp_path / "loopb").symlink_to("loopa")
+    (tmp_path / "loopa").symlink_to("loopb")
+    (tmp_path / "notes.md").write_text("host: metrics.internal\n")
+
+    files = {h.file for h in scan(tmp_path, denylist_file="loopa/rules.txt")}
+    assert files == {"notes.md"}
+
+
+def test_denylist_path_outside_the_root_exempts_nothing(tmp_path):
+    """(#109) An absolute denylist outside the scanned root exempts nothing.
+
+    Such a path is never enumerated under ``root``, so there is nothing to drop —
+    and the scan must still report the root's own hits.
+    """
+    outside = tmp_path.parent / f"{tmp_path.name}-rules.txt"
+    outside.write_text("acme.corp\n")
+    (tmp_path / "notes.md").write_text("host: metrics.internal\n")
+
+    files = {h.file for h in scan(tmp_path, denylist_file=str(outside))}
+    assert files == {"notes.md"}

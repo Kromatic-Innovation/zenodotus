@@ -100,7 +100,13 @@ def _denylist_exempt_rel(root: Path, denylist_file: str | Path | None) -> str | 
         target = root / target
     try:
         rel = target.resolve().relative_to(root.resolve())
-    except (OSError, ValueError):  # unresolvable, or outside the scanned root
+    except (OSError, RuntimeError, ValueError):
+        # OSError/RuntimeError: unresolvable — note ``Path.resolve`` reports a
+        # symlink loop as RuntimeError on 3.11/3.12 and as OSError (ELOOP) once
+        # it delegates to os.path.realpath, and RuntimeError is not an OSError.
+        # ValueError: resolves outside the scanned root. Either way there is
+        # nothing enumerated to exempt, and a bad --denylist-file path must not
+        # crash the gate.
         return None
     return rel.as_posix()
 
