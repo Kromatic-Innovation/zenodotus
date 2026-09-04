@@ -131,8 +131,8 @@ and it is enforced green in CI:
 python tests/evals/suite.py     # PASS/FAIL per case + GREEN/RED summary
 ```
 
-The suite runs fully offline via committed cassettes (no API key, no network).
-It deliberately exercises **both** outcomes: a repo the panel correctly
+The suite runs fully offline via committed cassettes (no API key, no network),
+and it deliberately exercises **both** outcomes: a repo the panel correctly
 blocks (`mediocre-readme`) and a repo it correctly passes (`clean-complete` — a
 complete, well-licensed repo that `gather_context` false-blocked before
 [zenodotus#30](https://github.com/Kromatic-Innovation/zenodotus/issues/30)).
@@ -177,7 +177,7 @@ per-repo as a list of regex patterns in a denylist file, so the scanner needs no
 code change to tighten. See the module's `DEFAULT_DENYLIST` for the built-in
 patterns. That per-repo denylist file (`.zenodotus-leakcheck.txt`) is
 **optional** — the built-in defaults work without it, so this repo ships no such
-file. The `leak-check` job fires on **every PR** (it is aggregated into the
+file. The `leak-check` job runs on **every PR** (it is aggregated into the
 required `ci-required` status check, so it must be green to merge). It **was a
 hard prerequisite for the public flip** (now done) and keeps the public tree
 clean on every change since. Run it locally with

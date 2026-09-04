@@ -11,7 +11,7 @@ Every panel finding NOT already caught by a deterministic gate is recorded via
 ``discovery_log.append`` with ``missed_by_deterministic=True`` — this log is the
 load-bearing evidence base for the prove-itself gate (docs/CONCEPT.md).
 
-No live LLM requests happen in tests: the provider is injectable, and the default
+No live LLM calls happen in tests: the provider is injectable, and the default
 ``AnthropicProvider`` imports the ``anthropic`` SDK lazily so importing this
 module (and running the suite with a stub/replay provider) needs no API key.
 """
