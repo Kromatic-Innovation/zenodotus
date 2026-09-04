@@ -136,6 +136,30 @@ def test_detect_repo_slug_none_without_remote(tmp_path):
     assert vm.detect_repo_slug(tmp_path / "repo") is None
 
 
+# --- git-absent seam (issue #111) -------------------------------------------- #
+
+def _no_run(monkeypatch):
+    """Make any ``_run`` call a hard failure, so the guard must short-circuit."""
+    def _boom(*a, **kw):  # pragma: no cover - only runs if the guard is missing
+        raise AssertionError("_run must not be invoked when git is unavailable")
+    monkeypatch.setattr(vm, "_run", _boom)
+
+
+def test_head_sha_returns_unknown_when_git_missing(tmp_path, monkeypatch):
+    # a real checkout — only git's absence should decide the result
+    _init_repo(tmp_path / "repo")
+    monkeypatch.setattr(vm, "_which", lambda tool: None)
+    _no_run(monkeypatch)
+    assert vm.head_sha(tmp_path / "repo") == vm.UNKNOWN_SHA
+
+
+def test_detect_repo_slug_returns_none_when_git_missing(tmp_path, monkeypatch):
+    _init_repo(tmp_path / "repo", remote="https://github.com/o/detected.git")
+    monkeypatch.setattr(vm, "_which", lambda tool: None)
+    _no_run(monkeypatch)
+    assert vm.detect_repo_slug(tmp_path / "repo") is None
+
+
 def test_resolve_repo_prefers_override_then_remote_then_dirname(tmp_path):
     _init_repo(tmp_path / "repo", remote="https://github.com/o/detected.git")
     # explicit override wins
