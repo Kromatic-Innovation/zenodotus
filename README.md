@@ -11,7 +11,7 @@
 **Why:** a repo can pass every automated check and still be unreadable, still leak org-internal assumptions, still not actually be finished — because none of that is mechanically checkable. Zenodotus exists because "the linters are green" and "this is actually ready for strangers" are different questions, and only one of them has been getting asked.
 
 Most "is this repo open-source ready?" checks are mechanical and already solved
-by great tools (OpenSSF Scorecard, REUSE, Gitleaks, pyroma, twine, GitHub
+by great tools (OpenSSF Scorecard, REUSE, Gitleaks, pyroma, GitHub
 Community Standards). Zenodotus **composes those as a hard floor**, then adds the
 part tools don't do: a panel of independent, *no-context* reviewers that judge
 the things a linter can't — is the README coherent to an outsider, is the scope
@@ -87,7 +87,7 @@ pip install "zenodotus[llm,tools]"   # or: pipx install "zenodotus[llm,tools]"
 | -------- | --------------------------------------------------- | ---------- |
 | _(base)_ | the `zenodotus` CLI and deterministic gates         | always     |
 | `llm`    | the default reviewer provider (Anthropic Claude)    | a live panel run |
-| `tools`  | `pyroma` + `twine` (the **Python** path of `packaging_ok`) | packaging checks |
+| `tools`  | `pyroma` (the **Python** path of `packaging_ok`) | packaging checks |
 
 A live panel run also needs an API key: `export ANTHROPIC_API_KEY=sk-...`.
 

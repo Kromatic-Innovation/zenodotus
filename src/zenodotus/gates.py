@@ -197,8 +197,9 @@ def packaging_ok(path: str) -> GateResult:
 def _packaging_ok_python(path: str) -> GateResult:
     """PyPI packaging hygiene via pyroma. Degrades to skipped if pyroma is absent.
 
-    (``twine check`` needs a built ``dist/`` and is run by the CLI when artifacts
-    exist; pyroma works directly against the source tree and is the floor here.)
+    (``twine check`` is deliberately not run: it needs a built ``dist/``, which
+    a review of an arbitrary checkout does not have; pyroma works directly
+    against the source tree and is the floor here.)
     """
     if not _which("pyroma"):
         return _skipped("packaging_ok", "pyroma", "pip install pyroma")

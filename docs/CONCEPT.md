@@ -7,7 +7,7 @@
    - License present + valid — REUSE / `licensee` / GitHub Community Standards
    - Community files (README, CONTRIBUTING, CoC, SECURITY) — GitHub API / Repolinter-style
    - No leaked secrets — Gitleaks
-   - Packaging hygiene, per ecosystem — `pyroma` + `twine check` (Python),
+   - Packaging hygiene, per ecosystem — `pyroma` (Python),
      `package.json` fields + `npm pack` (npm)
    - Security posture — OpenSSF Scorecard (optional, heavier)
 2. **Judgment panel** — N independent no-context reviewers (default provider:
@@ -81,11 +81,11 @@ packaging manifest found`. In every one of these cases the gate did not run:
 `floor_passed()` treats a skip as non-blocking, so a green floor does not mean
 packaging was checked.
 
-`twine check` is complementary to `pyroma`: it validates a **built** `dist/`
-(`twine` ≥ 5.0, `pip install "zenodotus[tools]"`), so it runs at the CLI layer
-when packaging artifacts exist rather than against the bare source tree.
+`twine check` is deliberately **not** run by Zenodotus: it validates a
+**built** `dist/`, which a review of an arbitrary checkout does not have.
+`pyroma` gates the source tree instead, so it is the floor here.
 
-The pip-installable helpers (`pyroma`, `twine`) ship via the `tools` extra:
+The pip-installable helper (`pyroma`) ships via the `tools` extra:
 `pip install "zenodotus[tools]"`. The Go/Ruby/Node binaries (`gitleaks`,
 `licensee`, `scorecard`, `npm`) are installed out of band per the table above.
 Without `gitleaks`, `licensee` or `scorecard` the corresponding gate simply
