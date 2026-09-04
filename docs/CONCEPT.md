@@ -7,7 +7,8 @@
    - License present + valid — REUSE / `licensee` / GitHub Community Standards
    - Community files (README, CONTRIBUTING, CoC, SECURITY) — GitHub API / Repolinter-style
    - No leaked secrets — Gitleaks
-   - PyPI packaging hygiene — `pyroma` + `twine check`
+   - Packaging hygiene, per ecosystem — `pyroma` + `twine check` (Python),
+     `package.json` fields + `npm pack` (npm)
    - Security posture — OpenSSF Scorecard (optional, heavier)
 2. **Judgment panel** — N independent no-context reviewers (default provider:
    Anthropic Claude; provider-agnostic). Each reviewer is blind to the others
@@ -44,17 +45,53 @@ non-blocking; only a non-skipped failing gate fails the floor.
 | `license_present` | pure-Python file check, then `licensee` (optional enrichment) | licensee ≥ 9.16 | `licensee detect --json <path>` | `gem install licensee` |
 | `community_files` | pure-Python presence check | n/a (no external tool) | README + CONTRIBUTING required; CODE_OF_CONDUCT + SECURITY recommended | built in |
 | `no_secrets` | Gitleaks | gitleaks ≥ 8.18 | `gitleaks detect --no-git --source <path> --redact --exit-code 1` | `brew install gitleaks` / [releases](https://github.com/gitleaks/gitleaks/releases) |
-| `packaging_ok` | pyroma | pyroma ≥ 4.2 | `pyroma --min 8 <path>` | `pip install "zenodotus[tools]"` |
+| `packaging_ok` — Python | pyroma | pyroma ≥ 4.2 | `pyroma --min 8 <path>` | `pip install "zenodotus[tools]"` |
+| `packaging_ok` — npm | pure-Python `package.json` field check, then `npm` (optional deepening) | n/a (any `npm` on `PATH`) | `npm pack --dry-run` (run in the repo root) | ships with [Node.js](https://nodejs.org) |
 | `security_posture` (optional, off by default) | OpenSSF Scorecard | scorecard ≥ 5.0 | `scorecard --local=<path> --format=json` | [ossf/scorecard](https://github.com/ossf/scorecard) |
+
+`packaging_ok` is **ecosystem-aware** (#41): it detects the repo's ecosystem
+from its manifest and runs the matching check, instead of running a Python-only
+tool against every repo. Detection is first-match-wins, in this order:
+
+| Ecosystem | Manifest file(s) | What runs |
+|-----------|------------------|-----------|
+| `python` | `pyproject.toml`, `setup.py`, `setup.cfg` | pyroma (see the table above) |
+| `npm` | `package.json` | field check, then `npm pack --dry-run` if `npm` is installed |
+
+For the npm path, `name` and `version` are **required** — the gate fails when
+either is missing — while `description`, `license` and `repository` are
+**recommended**: they are surfaced in the gate's detail string but do not fail
+it. A `package.json` with `"private": true` is not an npm publish target, so it
+reports `skipped` rather than `passed`.
+
+Six ecosystems are **recognized but not gated yet**; each reports `skipped` with
+`packaging gate skipped — <ecosystem> packaging not gated yet`:
+
+| Ecosystem | Manifest file(s) |
+|-----------|------------------|
+| `go` | `go.mod` |
+| `rust` | `Cargo.toml` |
+| `java-maven` | `pom.xml` |
+| `java-gradle` | `build.gradle`, `build.gradle.kts` |
+| `ruby` | `Gemfile` |
+| `php` | `composer.json` |
+
+A repo with no recognized manifest at all reports `packaging gate skipped — no
+packaging manifest found`. In every one of these cases the gate did not run:
+`floor_passed()` treats a skip as non-blocking, so a green floor does not mean
+packaging was checked.
 
 `twine check` is complementary to `pyroma`: it validates a **built** `dist/`
 (`twine` ≥ 5.0, `pip install "zenodotus[tools]"`), so it runs at the CLI layer
 when packaging artifacts exist rather than against the bare source tree.
 
 The pip-installable helpers (`pyroma`, `twine`) ship via the `tools` extra:
-`pip install "zenodotus[tools]"`. The Go/Ruby binaries (`gitleaks`, `licensee`,
-`scorecard`) are installed out of band per the table above; without them the
-corresponding gate simply reports `skipped`.
+`pip install "zenodotus[tools]"`. The Go/Ruby/Node binaries (`gitleaks`,
+`licensee`, `scorecard`, `npm`) are installed out of band per the table above.
+Without `gitleaks`, `licensee` or `scorecard` the corresponding gate simply
+reports `skipped`; `npm` is the one exception — it only deepens `packaging_ok`
+on an npm repo, so without it the `package.json` field check still runs and the
+gate can still pass.
 
 ## Discovery log (load-bearing)
 
