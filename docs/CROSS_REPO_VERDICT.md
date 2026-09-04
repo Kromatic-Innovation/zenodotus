@@ -42,8 +42,8 @@ The marker is a single HTML comment block:
 
 ## 2. Trigger & recording
 
-- **Trigger: on-demand only.** A human, or hestia's `oss-status` command, runs
-  `zenodotus review <repo> --emit-verdict-marker`. No CI wiring is injected into
+- **Trigger: on-demand only.** A human, or hestia's `oss-status` command,
+  triggers `zenodotus review <repo> --emit-verdict-marker`. No CI wiring is injected into
   the target repos: the tool stays generic and workspace-side tooling does not
   leak into it.
 - **Recording: a GitHub comment on the target repo.** Zenodotus only *renders*
