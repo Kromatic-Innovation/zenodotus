@@ -25,6 +25,7 @@ silently shown as cleared.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -63,12 +64,22 @@ def runner_string() -> str:
     return f"zenodotus v{ver}"
 
 
+def _which(tool: str) -> str | None:  # injectable seam, mirrors gates.py
+    return shutil.which(tool)
+
+
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
 def head_sha(path: str | Path) -> str:
-    """Full commit SHA of ``path``'s git HEAD, or ``UNKNOWN_SHA`` if not a checkout."""
+    """Full commit SHA of ``path``'s git HEAD, or ``UNKNOWN_SHA`` if not a checkout.
+
+    Also returns ``UNKNOWN_SHA`` when git itself is unavailable on ``PATH``, so a
+    git-less host degrades to the always-stale sentinel instead of raising.
+    """
+    if _which("git") is None:
+        return UNKNOWN_SHA
     root = str(path)
     inside = _run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"])
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -84,8 +95,11 @@ def detect_repo_slug(path: str | Path) -> str | None:
     Recognises the common GitHub URL shapes (``https://github.com/owner/name(.git)``
     and ``git@github.com:owner/name(.git)``). Returns ``None`` when it cannot be
     determined; the caller then falls back to the directory name or an explicit
-    ``--repo`` override.
+    ``--repo`` override — as it also does when git itself is unavailable on
+    ``PATH``.
     """
+    if _which("git") is None:
+        return None
     proc = _run(["git", "-C", str(path), "remote", "get-url", "origin"])
     if proc.returncode != 0:
         return None
