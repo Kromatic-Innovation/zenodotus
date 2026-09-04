@@ -73,7 +73,8 @@ blockers, opt-in per the maintainer's trust level.
 
 Zenodotus **composes** existing tools. Some ship with the package; others are
 separate binaries you install out of band. **Every external tool is optional:
-if it is absent, its gate reports `skipped` and the floor still runs** — see
+if it is absent, its gate reports `skipped` (or, for `npm`, falls back to the
+shallower check) and the floor still runs** — see
 [Skipped is not passed](#skipped-is-not-passed) below for why that matters.
 
 ### 1. Install the package (+ optional extras)
@@ -86,13 +87,13 @@ pip install "zenodotus[llm,tools]"   # or: pipx install "zenodotus[llm,tools]"
 | -------- | --------------------------------------------------- | ---------- |
 | _(base)_ | the `zenodotus` CLI and deterministic gates         | always     |
 | `llm`    | the default reviewer provider (Anthropic Claude)    | a live panel run |
-| `tools`  | `pyroma` + `twine` (the `packaging_ok` gate)        | packaging checks |
+| `tools`  | `pyroma` + `twine` (the **Python** path of `packaging_ok`) | packaging checks |
 
 A live panel run also needs an API key: `export ANTHROPIC_API_KEY=sk-...`.
 
 ### 2. Install the out-of-band binaries (optional)
 
-These are Go/Ruby tools that are **not** pip-installable. Install only the ones
+These are Go/Ruby/Node tools that are **not** pip-installable. Install only the ones
 whose gate you want to run:
 
 | Binary      | Gate it enables      | Install                                             | Skipped if absent |
@@ -100,9 +101,11 @@ whose gate you want to run:
 | `gitleaks`  | `no_secrets`         | `brew install gitleaks` / [releases][gl]            | secret scan does not run |
 | `licensee`  | `license_present` (enrichment only — a pure-Python check still runs) | `gem install licensee` | license enrichment does not run |
 | `scorecard` | `security_posture` (optional, off unless `--include-optional`) | [ossf/scorecard][sc] | posture check does not run |
+| `npm`       | `packaging_ok` on an npm repo (deepening only — the pure-Python `package.json` field check still runs) | [nodejs.org][node] | `npm pack --dry-run` does not run; the gate can still pass on fields alone |
 
 [gl]: https://github.com/gitleaks/gitleaks/releases
 [sc]: https://github.com/ossf/scorecard
+[node]: https://nodejs.org
 
 The exact versions and invocations are documented in
 [docs/CONCEPT.md → Tools wired](docs/CONCEPT.md#tools-wired-into-the-deterministic-floor-srczenodotusgatespy).
@@ -116,6 +119,18 @@ means a green-looking verdict can still hide checks that never executed. If you
 need a specific gate enforced, install its tool above and confirm the gate
 reports `passed` (not `skipped`) — `zenodotus review . --json` lists each gate's
 status explicitly.
+
+A missing tool is not the only way to get a skip. `packaging_ok` also reports
+`skipped` — not `passed` — in two cases that have nothing to do with an absent
+binary:
+
+- **`"private": true` in `package.json`.** A private package is not an npm
+  publish target, so the gate declines to hold it to publish hygiene.
+- **A recognized but ungated ecosystem** — `go`, `rust`, `java-maven`,
+  `java-gradle`, `ruby` or `php`. Packaging for these is detected and reported
+  (`packaging gate skipped — <ecosystem> packaging not gated yet`) but not
+  checked. Only Python and npm repos are actually gated; see
+  [docs/CONCEPT.md → Tools wired](docs/CONCEPT.md#tools-wired-into-the-deterministic-floor-srczenodotusgatespy).
 
 ## Usage
 
