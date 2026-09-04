@@ -106,14 +106,20 @@ def _strip_fences(text: str) -> str:
     return _FENCE_RE.sub("", text)
 
 
-def _strip_tables(text: str) -> str:
-    """Drop markdown pipe tables (header row + `---` separator + body rows).
+def _flatten_tables(text: str) -> str:
+    """Split markdown pipe tables into one paragraph per CELL.
 
-    A table is structured data, not natural-language prose — flattening its
-    rows into "sentences" via generic prose splitting produces nonsense
-    (a `no_secrets` cell next to a `packaging_ok` cell next to an install
-    command, all read as one run-on claim). Detected structurally (a row
-    line immediately followed by a separator line), not by file/line.
+    A table is structured data, not prose: reading a whole row as a single
+    sentence ties a verb in one cell to a backtick span in an unrelated one
+    (a `no_secrets` cell next to an install command, read as one run-on
+    claim). But dropping tables outright would leave the README extras table
+    -- the exact site this guard exists to protect -- silently unscanned, so
+    each cell is emitted as its own paragraph and scanned normally instead.
+
+    Detected structurally (a row line immediately followed by a separator
+    line), not by file/line. Stated trade-off: a cell containing an escaped
+    pipe splits mid-cell, which can separate a verb from its tool; that
+    direction is a missed claim, not a false alarm.
     """
     lines = text.split("\n")
     out: list[str] = []
@@ -121,9 +127,16 @@ def _strip_tables(text: str) -> str:
     while i < n:
         if (_TABLE_ROW_LINE_RE.match(lines[i]) and i + 1 < n
                 and _TABLE_SEPARATOR_LINE_RE.match(lines[i + 1])):
-            i += 2
+            rows = [lines[i]]
+            i += 2  # header row consumed above; skip the `---` separator
             while i < n and _TABLE_ROW_LINE_RE.match(lines[i]):
+                rows.append(lines[i])
                 i += 1
+            for row in rows:
+                for cell in row.strip().strip("|").split("|"):
+                    cell = cell.strip()
+                    if cell:
+                        out.extend([cell, ""])
             continue
         out.append(lines[i])
         i += 1
@@ -218,7 +231,7 @@ def unbacked_tool_claims(text: str, call_site_tools: set[str]) -> list[ToolClaim
     from ``call_site_tools``.
     """
     violations: list[ToolClaimViolation] = []
-    for paragraph in _paragraphs(_strip_tables(_strip_fences(text))):
+    for paragraph in _paragraphs(_flatten_tables(_strip_fences(text))):
         for sentence in _sentences(paragraph):
             if not _sentence_is_claim(sentence):
                 continue
@@ -353,3 +366,14 @@ def test_unrelated_negation_elsewhere_in_sentence_still_flags():
     text = (FIXTURES_DIR / "unrelated_negation.md").read_text(encoding="utf-8")
     result = unbacked_tool_claims(text, call_site_tools())
     assert any(v.tool == "flimflam" for v in result), result
+
+
+def test_table_cell_claims_are_scanned():
+    """A claim inside a markdown table cell must still be caught.
+
+    Tables are flattened per CELL rather than dropped: the README extras
+    table is the exact site this guard protects, so skipping tables
+    wholesale would leave a silent hole there (zenodotus#115)."""
+    text = (FIXTURES_DIR / "table.md").read_text(encoding="utf-8")
+    result = unbacked_tool_claims(text, call_site_tools())
+    assert [v.tool for v in result] == ["flimflam"], result
