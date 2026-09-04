@@ -5,6 +5,7 @@ CI runs must be green (issue #11 acceptance).
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,23 @@ from zenodotus.leakcheck import scan
 
 def _git(cwd: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+
+
+def _git_init(cwd: Path) -> None:
+    """Initialise a *hermetic* throwaway repo for a fixture.
+
+    ``core.excludesFile`` is neutralised for the same reason ``user.email`` and
+    ``user.name`` are set below: the fixture must not inherit the host developer's
+    git configuration. A global ignore file listing ``dist/``, ``build/`` or
+    ``node_modules/`` — a near-universal entry in a personal ``~/.gitignore_global``
+    — makes ``git add dist/...`` exit 1 ("paths are ignored by one of your .gitignore
+    files"), so a test that must stage a build artifact fails on the developer's
+    machine while passing on a CI runner that has no global ignore file.
+    """
+    _git(cwd, "init", "-q")
+    _git(cwd, "config", "core.excludesFile", os.devnull)
+    _git(cwd, "config", "user.email", "test@example.com")
+    _git(cwd, "config", "user.name", "Test")
 
 
 def test_clean_repo_has_no_hits(tmp_path):
@@ -106,9 +124,7 @@ def test_gitignored_file_with_leak_is_not_scanned(tmp_path):
     if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
         pytest.skip("git not available")
 
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "test@example.com")
-    _git(tmp_path, "config", "user.name", "Test")
+    _git_init(tmp_path)
 
     # A gitignored generated artifact carrying a leak marker — must be skipped.
     (tmp_path / ".gitignore").write_text(".agents/\n")
@@ -133,7 +149,7 @@ def test_untracked_file_with_leak_is_not_scanned(tmp_path):
     if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
         pytest.skip("git not available")
 
-    _git(tmp_path, "init", "-q")
+    _git_init(tmp_path)
     (tmp_path / "shipped.md").write_text("clean and public\n")
     _git(tmp_path, "add", "shipped.md")
     # Never added to the index — untracked, so it would not ship.
@@ -165,9 +181,7 @@ def test_tracked_build_artifact_with_leak_is_scanned(tmp_path):
     if shutil.which("git") is None:  # pragma: no cover - git is a CI dep
         pytest.skip("git not available")
 
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "test@example.com")
-    _git(tmp_path, "config", "user.name", "Test")
+    _git_init(tmp_path)
 
     tracked = ["dist/wheel-manifest.txt", "build/lib/meta.txt", "node_modules/pkg/info.txt"]
     for rel in tracked:
