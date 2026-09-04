@@ -10,7 +10,7 @@ permissively-licensed tools already cover it well:
 - **OpenSSF Scorecard** — security-supply-chain posture
 - **REUSE / licensee** — license presence & compliance
 - **Gitleaks** — leaked secrets
-- **pyroma + twine check** — PyPI packaging hygiene
+- **pyroma** — PyPI packaging hygiene
 - **GitHub Community Standards** — README/CONTRIBUTING/CoC/SECURITY presence
 
 Zenodotus does **not** reimplement these. It **composes them as a hard floor**
