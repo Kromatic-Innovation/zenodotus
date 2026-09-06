@@ -39,17 +39,24 @@ DEFAULT_DENYLIST_FILE = ".zenodotus-leakcheck.txt"
 
 # The ONE narrowing applied on top of the shared enumeration: files that
 # legitimately CONTAIN the marker patterns as literals and would otherwise
-# self-flag — this scanner's own source, the leakcheck test file (which plants
-# sample leaks), and the denylist config. Deliberately NOT a directory filter:
-# generated-artifact directories are fileset's business (its _UNTRACKED_DIRS is
-# the single definition, consulted on the non-git fallback walk), and inside a
-# git work tree a *tracked* dist/ or build/ file is shipped content that must be
-# scanned like any other (issue #106).
+# self-flag. This tuple is the FIXED half — this scanner's own source and the
+# leakcheck test file (which plants sample leaks), plus packaging metadata. The
+# denylist config is exempt too, but it is not named here: the path is a
+# parameter (``scan(denylist_file=...)``, ``--denylist-file``), so the exemption
+# is derived per call from the argument actually in use — see
+# :func:`_denylist_exempt_rel`. Naming one filename here exempted the denylist
+# only when the caller happened to use the default, and scanned a custom rules
+# file as ordinary content (issue #109).
+#
+# Deliberately NOT a directory filter: generated-artifact directories are
+# fileset's business (its _UNTRACKED_DIRS is the single definition, consulted on
+# the non-git fallback walk), and inside a git work tree a *tracked* dist/ or
+# build/ file is shipped content that must be scanned like any other (issue
+# #106).
 _IGNORE_GLOBS = (
     "*.egg-info/*",
     "src/zenodotus/leakcheck.py",
     "tests/test_leakcheck.py",
-    DEFAULT_DENYLIST_FILE,
 )
 _MAX_FILE_BYTES = 2_000_000
 
@@ -77,16 +84,48 @@ def load_denylist_file(path: str | Path) -> list[tuple[str, str]]:
     return out
 
 
-def _iter_text_files(root: Path):
+def _denylist_exempt_rel(root: Path, denylist_file: str | Path | None) -> str | None:
+    """Repo-relative POSIX path of the denylist config in use, or ``None``.
+
+    The exemption follows the argument rather than a fixed filename (issue #109).
+    ``./x/y.txt``, ``x/y.txt`` and an absolute path under ``root`` all normalize to
+    the one string ``_iter_text_files`` sees. Returns ``None`` when there is no
+    denylist to exempt (``denylist_file=None``) or when it resolves outside
+    ``root``, since such a path is never enumerated in the first place.
+    """
+    if denylist_file is None:
+        return None
+    target = Path(denylist_file)
+    if not target.is_absolute():
+        target = root / target
+    try:
+        rel = target.resolve().relative_to(root.resolve())
+    except (OSError, RuntimeError, ValueError):
+        # OSError/RuntimeError: unresolvable — note ``Path.resolve`` reports a
+        # symlink loop as RuntimeError on 3.11/3.12 and as OSError (ELOOP) once
+        # it delegates to os.path.realpath, and RuntimeError is not an OSError.
+        # ValueError: resolves outside the scanned root. Either way there is
+        # nothing enumerated to exempt, and a bad --denylist-file path must not
+        # crash the gate.
+        return None
+    return rel.as_posix()
+
+
+def _iter_text_files(root: Path, denylist_rel: str | None = None):
     # Enumerate only files that would actually ship (git-tracked, respecting
     # .gitignore) via the shared helper, so gitignored/generated local artifacts
     # (.agents/, .codex/, .tmp/, …) are never scanned and can't raise false
     # "leak" hits (issue #68). Outside a git work tree this falls back to a
     # filtered walk. panel.py consumes the same enumeration, and the only thing
-    # dropped here is _IGNORE_GLOBS (self-exemption, see above) — so the two
-    # callers reason about the same shipped file set (issue #106).
+    # dropped here is the self-exemption (see above): the fixed _IGNORE_GLOBS,
+    # plus ``denylist_rel`` — the denylist config this call was given — so the
+    # two callers reason about the same shipped file set (issue #106).
     for rel_posix in sorted(fileset.shippable_files(root)):
         rel = Path(rel_posix)
+        # Exact path match, never a widened glob: a different file that merely
+        # shares a name or suffix with the denylist is ordinary content (#109).
+        if denylist_rel is not None and rel_posix == denylist_rel:
+            continue
         if any(fnmatch.fnmatch(rel_posix, g) for g in _IGNORE_GLOBS):
             continue
         entry = root / rel
@@ -119,7 +158,7 @@ def scan(
     compiled = [(re.compile(rx), rx, label) for rx, label in rules]
 
     hits: list[LeakHit] = []
-    for rel_posix, text in _iter_text_files(root):
+    for rel_posix, text in _iter_text_files(root, _denylist_exempt_rel(root, denylist_file)):
         for lineno, line in enumerate(text.splitlines(), start=1):
             for rx, raw, label in compiled:
                 if rx.search(line):

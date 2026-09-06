@@ -11,7 +11,7 @@
 # This repo is develop-main (develop is the integration branch, main is the
 # published/deploy ref), so bump PRs target `develop`. The pip ecosystem at "/"
 # reads pyproject.toml, so every extra that carries the gate — dev (pytest,
-# ruff, pytest-cov), tools (pyroma, twine), and llm (anthropic) — is in scope.
+# ruff, pytest-cov), tools (pyroma), and llm (anthropic) — is in scope.
 # The group list is tailored to THIS repo's dependency set; it is not a copy of
 # athenaeum's per-package groups (this repo has no chromadb/fastmcp/pydantic
 # stack).
