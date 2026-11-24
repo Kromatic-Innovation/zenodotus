@@ -21,8 +21,66 @@ commitment and stays unused, so MINOR and PATCH do double duty:
 
 ### Breaking-change status
 
-**Breaking for anyone who relied on the implicit default model.** Per the
-versioning convention above this lands as a **MINOR** bump when released.
+**Breaking for anyone who relied on the implicit default model**, and a
+**behaviour change for every CLI run with no `.zenodotus.json`**: the CLI's
+no-config defaults now match the workspace release-gate skill (see *Changed*
+below). Per the versioning convention above this lands as a **MINOR** bump
+when released. The library's `panel.review()` defaults are unchanged.
+
+### Added
+
+- **Configurable review** ([#134](https://github.com/Kromatic-Innovation/zenodotus/issues/134)).
+  `zenodotus review` reads an optional, committed `.zenodotus.json` at the
+  reviewed repo's root, the same file the workspace release-gate skill reads.
+  Precedence: CLI flag, then `ZENODOTUS_MODEL` (model only), then the file,
+  then the default. `--config PATH` reads another file and `--no-config`
+  ignores it. An invalid value, an unknown key under `cli` or at the top
+  level, or a duplicate key exits 2 with a message naming the dotted key.
+  The skill-only keys `disposition`, `trivial_fix_max_lines` and `rerun` are
+  accepted and ignored. New module `zenodotus.config`.
+- Shared keys with the skill's names and defaults: `scope.patch|minor|major`
+  (`diff`/`full`), `personas`, `prior_rulings`, `nit_bar`. Package-only keys
+  under `cli`: `reviewers`, `fail_on`, `include_optional`, `reviewer_tools`,
+  `shadow`, `model`, `lenses` (custom `{id, focus}` lenses) and `personas`.
+- **Diff scope by bump class.** New `--prior-tag REF` (alias `--base-ref`),
+  `--version`, `--bump-class patch|minor|major|none` and `--scope`. Without
+  `--bump-class`, the class is derived from `--prior-tag` and `--version` by
+  SemVer comparison. With no prior tag the class is `none` and the scope is
+  always `full`. In `diff` scope reviewers also get the changed-file list and
+  the release diff and report only on the changes.
+- **Reviewer lenses** with the skill's slugs: `drive-by-installer`,
+  `production-evaluator`, `maintainers-maintainer`, `drive-by-contributor`.
+  New `--personas`. Reviewers stay no-context and blind to each other.
+- **Prior rulings.** New `--prior-findings PATH` and `--prior-rulings on|off`.
+  Reviewers are told not to re-raise an already-ruled point; a re-raised one
+  is marked `repeat: true`. Format: `docs/PANEL_VERDICT_SPEC.md` §5 (spec 1.3).
+- **Nit bar.** New `--nit-bar strict|standard`.
+- New `--model` flag, above `ZENODOTUS_MODEL` in precedence.
+- New `--no-shadow` and `--no-include-optional`, so a flag can turn off a
+  `true` set in the file.
+- `--json` records `bump_class`, `config_file` and `settings` (every
+  effective setting as `{value, source}`, the skill's shape). Every finding
+  carries `in_diff` and `repeat`. A finding with `in_diff: false` or
+  `repeat: true` is reported as a warning and never blocks, whatever
+  `--fail-on` says. Discovery-log records tag them `out-of-diff` / `repeat`.
+- `panel.review()` gains `scope`, `base_ref`, `lenses`, `prior_findings` and
+  `nit_bar` keyword arguments. Their defaults reproduce the earlier panel.
+
+### Changed
+
+- **CLI defaults with no `.zenodotus.json`** ([#134](https://github.com/Kromatic-Innovation/zenodotus/issues/134)).
+  These match the skill and stop the "new nits every patch release" loop:
+  - the panel is one reviewer per default lens (`drive-by-installer`,
+    `production-evaluator`, `maintainers-maintainer`) instead of three
+    generic reviewers. `--reviewers N` still runs N generic reviewers;
+  - the scope is `diff` for patch and minor releases when a prior tag is
+    given (`full` for major, and always `full` without a prior tag);
+  - prior rulings are `on` (they apply when `--prior-findings` is given);
+  - the nit bar is `strict`.
+
+  To get the old behaviour back, pass `--reviewers 3 --nit-bar standard
+  --scope full`, or put `{"nit_bar": "standard", "cli": {"reviewers": 3}}` in
+  `.zenodotus.json`.
 
 ### Removed
 

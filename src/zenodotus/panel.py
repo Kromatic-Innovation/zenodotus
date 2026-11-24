@@ -167,8 +167,14 @@ VERDICT_SCHEMA: dict = {
                         "enum": ["blocker", "major", "minor"],
                     },
                     "rationale": {"type": "string"},
+                    # Issue #134. `in_diff`: the finding is on a changed line, or
+                    # on behaviour/docs the release diff affects (always true in
+                    # full scope). `repeat`: it re-raises a point an earlier
+                    # release already ruled on. Both are normalised by review().
+                    "in_diff": {"type": "boolean"},
+                    "repeat": {"type": "boolean"},
                 },
-                "required": ["finding", "category", "severity", "rationale"],
+                "required": ["finding", "category", "severity", "rationale", "in_diff", "repeat"],
                 "additionalProperties": False,
             },
         },
@@ -331,8 +337,29 @@ _CONTEXT_FILES = (
 _MAX_FILE_CHARS = 200_000
 
 
-def gather_context(path: str) -> str:
-    """Collect the repo's public-facing files into one bounded review context."""
+def _bounded(raw: str) -> str:
+    body = raw[:_MAX_FILE_CHARS]
+    if len(raw) > _MAX_FILE_CHARS:
+        omitted = len(raw) - _MAX_FILE_CHARS
+        body += (
+            f"\n\n[zenodotus: {omitted} more character(s) omitted here to keep "
+            "the review context bounded — the source file is COMPLETE, not "
+            "truncated or unfinished. Do not report it as incomplete.]"
+        )
+    return body
+
+
+def gather_context(path: str, *, scope: str = "full", base_ref: str | None = None) -> str:
+    """Collect the repo's public-facing files into one bounded review context.
+
+    In ``diff`` scope (issue #134) the context also carries the changed-file list
+    and the release diff ``git diff <base_ref>..HEAD``; the tree stays in for
+    context. ``full`` scope (the default) is the whole-tree context unchanged.
+    """
+    if scope not in ("full", "diff"):
+        raise ValueError(f"scope must be 'full' or 'diff' (got {scope!r})")
+    if scope == "diff" and not base_ref:
+        raise ValueError("diff scope needs `base_ref` (the prior release tag)")
     root = Path(path)
     parts: list[str] = []
     # A file tree gives reviewers a sense of scope. Enumerate the files that would
@@ -347,29 +374,118 @@ def gather_context(path: str) -> str:
         fp = root / rel
         if fp.is_file():
             raw = fp.read_text(encoding="utf-8", errors="replace")
-            body = raw[:_MAX_FILE_CHARS]
-            if len(raw) > _MAX_FILE_CHARS:
-                omitted = len(raw) - _MAX_FILE_CHARS
-                body += (
-                    f"\n\n[zenodotus: {omitted} more character(s) omitted here to keep "
-                    "the review context bounded — the source file is COMPLETE, not "
-                    "truncated or unfinished. Do not report it as incomplete.]"
-                )
-            parts.append(f"## {rel}\n{body}")
+            parts.append(f"## {rel}\n{_bounded(raw)}")
+
+    if scope == "diff":
+        changed = fileset.changed_files(root, base_ref)
+        listing = "\n".join(f"- {f}" for f in changed) or "- (none)"
+        parts.append(f"## Changed files (git diff {base_ref}..HEAD)\n{listing}")
+        parts.append(
+            f"## Release diff (git diff {base_ref}..HEAD)\n"
+            f"{_bounded(fileset.diff_text(root, base_ref))}"
+        )
     return "\n\n".join(parts)
+
+
+# --- per-reviewer brief (issue #134) ----------------------------------------- #
+
+# Under the `strict` nit bar a docs or polish finding must clear this bar.
+# `standard` adds nothing: it is the rubric as it was before the nit bar existed.
+STRICT_NIT_BAR = (
+    "Nit bar: strict. Report a docs or polish finding (wording, formatting, "
+    "structure, tone, completeness) ONLY if a user following the docs as written "
+    "would fail or be misled. A better phrasing, a missing nicety or a style "
+    "preference is not a finding under this bar; leave it out."
+)
+
+DIFF_SCOPE_BRIEF = (
+    "Review scope: diff. The context below ends with the changed-file list and "
+    "the release diff since `{base}`. Report only findings on changed lines, and "
+    "on behaviour or docs that those changes affect. Read the whole repo for "
+    "context, but do not report on unchanged code or copy that this release does "
+    "not affect. Set `in_diff: true` on a finding about the changes, and "
+    "`in_diff: false` on anything else you still think must be said; an "
+    "`in_diff: false` finding never blocks the release."
+)
+
+FULL_SCOPE_NOTE = "Review scope: full. Set `in_diff: true` on every finding."
+
+PRIOR_RULINGS_BRIEF = (
+    "Prior rulings. An earlier release's review already raised the points below, "
+    "and each was ruled on: `fixed`, `filed` (tracked as an issue) or `dismissed`. "
+    "Do not raise a ruled point again unless the changes under review touch it. If "
+    "you do raise one again, set `repeat: true` on that finding; a repeat never "
+    "counts toward a block. Set `repeat: false` on every other finding."
+)
+
+
+def _prior_rulings_block(prior_findings: list[dict]) -> str:
+    lines = []
+    for f in prior_findings:
+        ruling = f["ruling"] + (f" ({f['ref']})" if f.get("ref") else "")
+        lines.append(f"- [{ruling}] {f['finding']}")
+    return PRIOR_RULINGS_BRIEF + "\n\n" + "\n".join(lines)
+
+
+def reviewer_brief(
+    *,
+    lens_focus: str | None = None,
+    scope: str = "full",
+    base_ref: str | None = None,
+    nit_bar: str = "standard",
+    prior_findings: list[dict] | None = None,
+) -> str:
+    """The per-reviewer instructions placed before the repo context.
+
+    Empty with every argument at its default, so a default ``review()`` sends
+    exactly the context it always did. A lens adds a focus only — never internal
+    context — and each reviewer still sees nothing of the others.
+    """
+    if nit_bar not in ("strict", "standard"):
+        raise ValueError(f"nit_bar must be 'strict' or 'standard' (got {nit_bar!r})")
+    blocks: list[str] = []
+    if lens_focus:
+        blocks.append(f"Reviewer lens: {lens_focus}")
+    if scope == "diff":
+        blocks.append(DIFF_SCOPE_BRIEF.format(base=base_ref))
+    elif lens_focus or nit_bar == "strict" or prior_findings:
+        blocks.append(FULL_SCOPE_NOTE)
+    if nit_bar == "strict":
+        blocks.append(STRICT_NIT_BAR)
+    if prior_findings:
+        blocks.append(_prior_rulings_block(prior_findings))
+    if not blocks:
+        return ""
+    return "## Review brief\n\n" + "\n\n".join(blocks)
 
 
 # --- consensus --------------------------------------------------------------- #
 
 
+def counts_toward_block(finding: dict) -> bool:
+    """Whether a finding can contribute to a block (issue #134).
+
+    An out-of-diff finding (``in_diff: false``) or a repeat of an already-ruled
+    point (``repeat: true``) is reported as a warning and never blocks, whatever
+    ``--fail-on`` says.
+    """
+    return finding.get("in_diff", True) is not False and not finding.get("repeat", False)
+
+
 def any_blocker_no_go(verdicts: list[ReviewerVerdict]) -> bool:
-    """Default consensus: go unless any reviewer said no-go or raised a blocker."""
+    """Default consensus: go unless any reviewer said no-go or raised a blocker.
+
+    Only findings that :func:`counts_toward_block` are considered. A reviewer's
+    no-go blocks when it is bare (no findings) or rests on at least one counting
+    finding; a no-go whose every finding is out of diff or a repeat does not.
+    """
     if not verdicts:
         return False
     for v in verdicts:
-        if not v.go:
+        counting = [f for f in v.findings if counts_toward_block(f)]
+        if not v.go and (not v.findings or counting):
             return False
-        if any(f.get("severity") == "blocker" for f in v.findings):
+        if any(f.get("severity") == "blocker" for f in counting):
             return False
     return True
 
@@ -443,6 +559,11 @@ def review(
     repo_name: str | None = None,
     reviewer_tools: dict | list[str] | None = None,
     model: str | None = None,
+    scope: str = "full",
+    base_ref: str | None = None,
+    lenses: list[tuple[str, str]] | None = None,
+    prior_findings: list[dict] | None = None,
+    nit_bar: str = "standard",
 ) -> PanelReview:
     """Run ``n_reviewers`` no-context reviewers over ``path`` and aggregate.
 
@@ -486,6 +607,25 @@ def review(
     omitted (no ``log_path``), it falls back to a real ISO-8601 UTC timestamp
     generated at call time — never an empty string — so a library caller's
     isolation record always satisfies ``docs/PANEL_VERDICT_SPEC.md`` §1.3.
+
+    Issue #134 options; every default reproduces the panel as it was before them:
+
+    - ``scope`` — ``"full"`` (default) reviews the whole tree; ``"diff"`` adds the
+      changed-file list and the release diff since ``base_ref`` (required then)
+      and tells reviewers to report only on the changes.
+    - ``lenses`` — ``[(id, focus), ...]``. When given, one reviewer runs per lens,
+      with the lens id as its reviewer id, and ``n_reviewers`` is ignored. When
+      omitted, ``n_reviewers`` generic reviewers run (``reviewer-1`` …).
+    - ``prior_findings`` — earlier findings with their rulings
+      (docs/PANEL_VERDICT_SPEC.md §5). Reviewers are told not to re-raise them,
+      and a re-raised point is marked ``repeat: true``.
+    - ``nit_bar`` — ``"standard"`` (default, the rubric unchanged) or
+      ``"strict"``.
+
+    Every returned finding carries ``in_diff`` and ``repeat`` booleans. In full
+    scope ``in_diff`` is always true; without ``prior_findings`` ``repeat`` is
+    always false. Neither kind of finding counts toward a block
+    (:func:`counts_toward_block`).
     """
     if provider is not None and model is not None:
         raise ValueError(
@@ -511,7 +651,11 @@ def review(
         )
     repo = repo_name or Path(path).name
 
-    context = gather_context(path)
+    context = gather_context(path, scope=scope, base_ref=base_ref)
+    if lenses:
+        panel_spec = [(lid, focus) for lid, focus in lenses]
+    else:
+        panel_spec = [(f"reviewer-{i + 1}", None) for i in range(n_reviewers)]
 
     verdicts: list[ReviewerVerdict] = []
     all_denied: list[isolation.DeniedAttempt] = []
@@ -521,8 +665,12 @@ def review(
     # omitted" (Quine review, PR #81).
     effective_at = at if at else _iso_now()
 
-    for i in range(n_reviewers):
-        reviewer_id = f"reviewer-{i + 1}"
+    for reviewer_id, focus in panel_spec:
+        brief = reviewer_brief(
+            lens_focus=focus, scope=scope, base_ref=base_ref, nit_bar=nit_bar,
+            prior_findings=prior_findings,
+        )
+        reviewer_context = f"{brief}\n\n{context}" if brief else context
         policy = isolation.resolve_policy(reviewer_tools, reviewer_id)
         requested = list(getattr(provider, "requested_tools", []) or [])
         permitted = policy.filter_tools(requested, at=effective_at)
@@ -537,12 +685,18 @@ def review(
         # it turns PR #81's mutation test RED. Keep it.
         all_granted.update(granted_names)
 
-        raw = provider.review(reviewer_id, context, tools=permitted)
+        raw = provider.review(reviewer_id, reviewer_context, tools=permitted)
+        findings = []
+        for f in raw.get("findings", []):
+            f = dict(f)
+            f["in_diff"] = True if scope != "diff" else f.get("in_diff", True) is not False
+            f["repeat"] = bool(prior_findings) and f.get("repeat", False) is True
+            findings.append(f)
         verdicts.append(
             ReviewerVerdict(
                 reviewer=reviewer_id,
                 go=bool(raw.get("go", False)),
-                findings=list(raw.get("findings", [])),
+                findings=findings,
                 rationale=str(raw.get("rationale", "")),
                 tools=granted_names,
             )
@@ -572,6 +726,8 @@ def review(
                 at=at or "",
                 caught_by="panel",
                 missed_by_deterministic=True,
+                tags=(["out-of-diff"] if not f["in_diff"] else [])
+                + (["repeat"] if f["repeat"] else []),
             )
             discoveries.append(d)
             if log_path is not None:
