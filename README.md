@@ -139,6 +139,7 @@ binary:
 ```bash
 pipx install zenodotus            # or: pip install "zenodotus[llm]"
 export ANTHROPIC_API_KEY=sk-...   # the default reviewer provider (Claude); your own key
+export ZENODOTUS_MODEL=claude-sonnet-5   # required, no default model; any current model id, or pass --model
 zenodotus review /path/to/repo                     # human-readable verdict
 zenodotus review /path/to/repo --json              # machine-readable
 python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
@@ -173,7 +174,8 @@ regardless.
 ```python
 from zenodotus.panel import review
 
-# State the model at the call site — no env var, no hand-built provider:
+# State the model at the call site — no env var, no hand-built provider
+# (the id is an example; use any current model id):
 panel = review("/path/to/repo", model="claude-sonnet-5")
 ```
 
@@ -197,7 +199,7 @@ environment variable, or `cli.model` in `.zenodotus.json`, in that order of
 precedence. With none of them set, `zenodotus review` exits 2:
 
 ```bash
-export ZENODOTUS_MODEL=claude-sonnet-5
+export ZENODOTUS_MODEL=claude-sonnet-5   # example id; use any current model
 zenodotus review .
 ```
 
