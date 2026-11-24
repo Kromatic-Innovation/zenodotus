@@ -562,3 +562,28 @@ def test_json_records_every_setting_with_a_source(tmp_path, capsys):
         entry = out["settings"][key]
         assert set(entry) == {"value", "source"}
         assert entry["source"] in ("flag", "environment", "file", "default", "no-prior-tag")
+
+
+# --- review follow-ups (PR #136) ------------------------------------------------------ #
+
+
+def test_negative_flags_override_a_true_file_setting(tmp_path, capsys):
+    d = _repo(tmp_path, {"cli": {"shadow": True, "include_optional": True}})
+    _, out, _ = _run(d, "--no-shadow", "--no-include-optional", capsys=capsys)
+    assert out["settings"]["cli.shadow"] == {"value": False, "source": "flag"}
+    assert out["settings"]["cli.include_optional"] == {"value": False, "source": "flag"}
+    assert out["shadow"] is False
+
+
+def test_git_failure_in_diff_scope_exits_2_without_model_hint(tmp_path, capsys, monkeypatch):
+    from zenodotus import fileset
+
+    def boom(root, base):
+        raise fileset.RefError("git diff v0.1.0..HEAD failed: shallow clone")
+
+    monkeypatch.setattr(fileset, "changed_files", boom)
+    d = _repo(tmp_path, git=True)
+    assert _run(d, "--prior-tag", "v0.1.0", "--bump-class", "patch")[0] == 2
+    err = _err(capsys)
+    assert "shallow clone" in err
+    assert "ZENODOTUS_MODEL" not in err

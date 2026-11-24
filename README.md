@@ -261,9 +261,9 @@ with its source under `settings` (`{"<key>": {"value": ..., "source": "flag" |
 |---|---|---|---|
 | `cli.reviewers` | positive integer: that many generic reviewers, in place of the `personas` lenses | unset | `--reviewers` |
 | `cli.fail_on` | `blocker` or `never` | `never` | `--fail-on` |
-| `cli.include_optional` | `true` or `false` | `false` | `--include-optional` |
+| `cli.include_optional` | `true` or `false` | `false` | `--include-optional` / `--no-include-optional` |
 | `cli.reviewer_tools` | list of tool names | unset (no tools) | `--reviewer-tools` |
-| `cli.shadow` | `true` or `false` | `false` | `--shadow` |
+| `cli.shadow` | `true` or `false` | `false` | `--shadow` / `--no-shadow` |
 | `cli.model` | model id | unset | `--model` (and `ZENODOTUS_MODEL`) |
 | `cli.lenses` | list of custom lenses `{"id": "<slug>", "focus": "<text>"}` | none | — |
 | `cli.personas` | same shape as `personas`, and may name `cli.lenses` ids. Overrides `personas` for the package only | unset | `--personas` |

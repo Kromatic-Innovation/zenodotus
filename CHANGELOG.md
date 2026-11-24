@@ -56,6 +56,8 @@ when released. The library's `panel.review()` defaults are unchanged.
   is marked `repeat: true`. Format: `docs/PANEL_VERDICT_SPEC.md` §5 (spec 1.3).
 - **Nit bar.** New `--nit-bar strict|standard`.
 - New `--model` flag, above `ZENODOTUS_MODEL` in precedence.
+- New `--no-shadow` and `--no-include-optional`, so a flag can turn off a
+  `true` set in the file.
 - `--json` records `bump_class`, `config_file` and `settings` (every
   effective setting as `{value, source}`, the skill's shape). Every finding
   carries `in_diff` and `repeat`. A finding with `in_diff: false` or

@@ -24,7 +24,7 @@ import json
 import sys
 from datetime import UTC, datetime
 
-from . import config, gates, panel, verdict_marker
+from . import config, fileset, gates, panel, verdict_marker
 
 
 def _utcnow_iso() -> str:
@@ -307,6 +307,9 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
                         help="Discovery-log path (JSONL). Use '' to disable. Default: discoveries.jsonl")
     review.add_argument("--include-optional", action="store_true", default=None,
                         help="Also run optional/heavier gates (e.g. OpenSSF Scorecard)")
+    review.add_argument("--no-include-optional", dest="include_optional",
+                        action="store_false", default=None,
+                        help="Do not run optional gates, even if cli.include_optional is true")
     review.add_argument("--fail-on", dest="fail_on", choices=FAIL_ON_CHOICES,
                         default=None,
                         help="Block threshold for PANEL findings (the deterministic floor "
@@ -319,6 +322,8 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
                              "discoveries to the log, and NEVER fail the build (exit 0). "
                              "The recommended way to accumulate prove-itself evidence on "
                              "live release candidates.")
+    review.add_argument("--no-shadow", dest="shadow", action="store_false", default=None,
+                        help="Turn shadow mode off, even if cli.shadow is true")
     review.add_argument("--emit-verdict-marker", action="store_true",
                         dest="emit_verdict_marker",
                         help="Emit a durable, machine-readable cross-repo verdict marker "
@@ -345,9 +350,10 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
             args.log = None
         try:
             result = _run_review(args, provider=provider, now=now)
-        except config.ConfigError as exc:
-            # A bad setting, config file or ref: "could not run" (exit 2),
-            # reported before any gate or reviewer ran.
+        except (config.ConfigError, fileset.RefError) as exc:
+            # A bad setting, config file or ref, or a git diff that failed in
+            # diff scope: "could not run" (exit 2). Not a model problem, so no
+            # model hint.
             print(f"zenodotus: {exc}", file=sys.stderr)
             return 2
         except ValueError as exc:
