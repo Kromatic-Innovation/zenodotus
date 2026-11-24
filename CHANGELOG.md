@@ -108,6 +108,10 @@ when released. The library's `panel.review()` defaults are unchanged.
   To get the old behaviour back, pass `--reviewers 3 --nit-bar standard
   --scope full`, or put `{"nit_bar": "standard", "cli": {"reviewers": 3}}` in
   `.zenodotus.json`.
+- **Packaging extras.** The `tools` extra now installs only `pyroma`. It no
+  longer installs `twine`, which no code path ran
+  ([#115](https://github.com/Kromatic-Innovation/zenodotus/issues/115)). The
+  `dev` extra pins `ruff==0.17.3`.
 
 ### Removed
 
@@ -133,8 +137,9 @@ when released. The library's `panel.review()` defaults are unchanged.
   worth a look first, since the old pin was already stale.
 
   **CLI users are affected too.** `zenodotus review` builds the default
-  provider and has no `--model` flag, so it now requires `ZENODOTUS_MODEL` to
-  be set. With it unset the command prints the actionable message and exits
+  provider, so it now needs a model from `--model`, `ZENODOTUS_MODEL` or
+  `cli.model` in `.zenodotus.json` (both added in this release, see *Added*).
+  With none of them set the command prints the actionable message and exits
   **2** — "could not run", distinct from the existing exit 1, "ran, and the
   verdict blocks". The three-state pass/warn/block exit contract
   (`docs/PANEL_VERDICT_SPEC.md` §1) is unchanged for runs that actually
