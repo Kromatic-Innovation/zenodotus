@@ -24,7 +24,7 @@ import json
 import sys
 from datetime import UTC, datetime
 
-from . import gates, panel, verdict_marker
+from . import config, gates, panel, verdict_marker
 
 
 def _utcnow_iso() -> str:
@@ -34,8 +34,8 @@ def _utcnow_iso() -> str:
 # --- verdict policy ---------------------------------------------------------- #
 
 # --fail-on thresholds: the block threshold applied to the PANEL's contribution.
-FAIL_ON_CHOICES = ("blocker", "never")
-DEFAULT_FAIL_ON = "never"  # advisory-first: panel findings warn, they do not block
+FAIL_ON_CHOICES = config.FAIL_ON_CHOICES
+DEFAULT_FAIL_ON = config.DEFAULT_FAIL_ON  # advisory-first: panel findings warn, never block
 
 
 def _derive_verdict(floor_ok: bool, panel_result, *, fail_on: str, shadow: bool) -> str:
@@ -90,18 +90,30 @@ def _attach_verdict_marker(result: dict, args, at: str) -> dict:
 
 
 def _run_review(args, *, provider=None, now: str | None = None) -> dict:
-    """Execute the review pipeline and return a structured result dict."""
-    at = now or _utcnow_iso()
+    """Execute the review pipeline and return a structured result dict.
 
-    gate_results = gates.run_all(args.path, include_optional=args.include_optional)
+    Settings resolve first (flag > ``ZENODOTUS_MODEL`` > ``.zenodotus.json`` >
+    default, :mod:`zenodotus.config`); an invalid setting raises
+    :class:`config.ConfigError` before any gate or reviewer runs.
+    """
+    at = now or _utcnow_iso()
+    settings = config.resolve(args)
+
+    gate_results = gates.run_all(args.path, include_optional=settings.include_optional)
     floor_ok = gates.floor_passed(gate_results)
 
-    shadow = getattr(args, "shadow", False)
-    fail_on = getattr(args, "fail_on", DEFAULT_FAIL_ON)
+    shadow = settings.shadow
+    fail_on = settings.fail_on
     result: dict = {
         "path": args.path,
         "shadow": shadow,
         "fail_on": fail_on,
+        # Issue #134: the run's bump class, the config file read (None when
+        # there was none), and every effective setting with its source, in the
+        # skill's `settings{key: {value, source}}` shape.
+        "bump_class": settings.bump_class,
+        "config_file": settings.config_file,
+        "settings": settings.sources,
         "floor_passed": floor_ok,
         "gates": [dataclasses.asdict(g) for g in gate_results],
         "panel": None,
@@ -130,15 +142,22 @@ def _run_review(args, *, provider=None, now: str | None = None) -> dict:
         result["state"] = result["verdict"]
         return _attach_verdict_marker(result, args, at)
 
-    reviewer_tools = getattr(args, "reviewer_tools", None)
+    reviewer_tools = settings.reviewer_tools
     panel_result = panel.review(
         args.path,
-        n_reviewers=args.reviewers,
+        n_reviewers=settings.reviewers or 3,
         provider=provider,
         gate_results=gate_results,
         log_path=args.log,
         at=at,
         reviewer_tools={"reviewers": {"tools": reviewer_tools}} if reviewer_tools else None,
+        # An injected provider owns its model; panel.review refuses both.
+        model=settings.model if provider is None else None,
+        scope=settings.scope,
+        base_ref=settings.prior_tag if settings.scope == "diff" else None,
+        lenses=settings.lenses or None,
+        prior_findings=settings.prior_findings,
+        nit_bar=settings.nit_bar,
     )
     result["panel"] = {
         "consensus_go": panel_result.consensus_go,
@@ -173,6 +192,12 @@ def _floor_verdict_line(result: dict) -> str:
 def _print_human(result: dict, out=None) -> None:
     out = out if out is not None else sys.stdout
     print(f"zenodotus review: {result['path']}", file=out)
+    s = result.get("settings") or {}
+    if s:
+        scope = s["scope"]["value"]
+        print(f"  bump class: {result['bump_class']} · scope: {scope} · "
+              f"nit bar: {s['nit_bar']['value']} · "
+              f"config: {result['config_file'] or 'none'}", file=out)
     print("\nDeterministic floor:", file=out)
     for g in result["gates"]:
         status = "SKIP" if g["skipped"] else ("PASS" if g["passed"] else "FAIL")
@@ -187,7 +212,12 @@ def _print_human(result: dict, out=None) -> None:
         for v in panel_data["verdicts"]:
             print(f"  [{'go' if v['go'] else 'NO-GO'}] {v['reviewer']}: {v['rationale']}", file=out)
             for f in v["findings"]:
-                print(f"      - ({f['severity']}/{f['category']}) {f['finding']}", file=out)
+                flags = "".join([
+                    "" if f.get("in_diff", True) else " [out of diff, never blocks]",
+                    " [repeat of a prior ruling, never blocks]" if f.get("repeat") else "",
+                ])
+                print(f"      - ({f['severity']}/{f['category']}) {f['finding']}{flags}",
+                      file=out)
         n_disc = len(panel_data["discoveries"])
         if n_disc:
             where = panel_data["log_path"] or "(not persisted)"
@@ -232,20 +262,59 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
     review.add_argument("path", help="Path to the repository under review")
     review.add_argument("--json", action="store_true", dest="as_json",
                         help="Emit a machine-readable verdict")
-    review.add_argument("--reviewers", type=int, default=3,
-                        help="Number of independent no-context reviewers (default: 3)")
+    review.add_argument("--reviewers", type=int, default=None,
+                        help="Run this many generic no-context reviewers instead of the "
+                             "lens panel (overrides personas; file key cli.reviewers). "
+                             "Default: unset — one reviewer per lens in `personas`.")
+    review.add_argument("--config", default=None, metavar="PATH",
+                        help="Read settings from PATH instead of <path>/.zenodotus.json")
+    review.add_argument("--no-config", action="store_true", dest="no_config",
+                        help="Ignore any .zenodotus.json; use flags and defaults only")
+    review.add_argument("--prior-tag", "--base-ref", dest="prior_tag", default=None,
+                        metavar="REF",
+                        help="The previous release's tag. Enables diff scope; without it "
+                             "the bump class is none and the scope is always full.")
+    review.add_argument("--version", dest="version", default=None,
+                        help="The version being released (MAJOR.MINOR.PATCH). With "
+                             "--prior-tag, derives the bump class when --bump-class is "
+                             "absent.")
+    review.add_argument("--bump-class", dest="bump_class", default=None,
+                        choices=config.BUMP_CLASSES,
+                        help="Release bump class; selects scope.<class> and per-class "
+                             "personas. Derived from --prior-tag and --version if absent.")
+    review.add_argument("--scope", default=None, choices=config.SCOPES,
+                        help="diff: review only the release diff since --prior-tag; full: "
+                             "the whole tree. Default: scope.<bump class> from the file, "
+                             "else diff for patch/minor, full for major.")
+    review.add_argument("--personas", default=None, metavar="LIST",
+                        help="Comma-separated reviewer lenses, one reviewer each (built-in: "
+                             + ", ".join(config.BUILTIN_LENSES) + "; or a cli.lenses id)")
+    review.add_argument("--prior-rulings", dest="prior_rulings", default=None,
+                        choices=config.ON_OFF,
+                        help="on (default): pass --prior-findings to reviewers so ruled "
+                             "points are not re-raised; off: ignore them")
+    review.add_argument("--prior-findings", dest="prior_findings", default=None,
+                        metavar="PATH",
+                        help="JSON file of earlier findings and their rulings "
+                             "(docs/PANEL_VERDICT_SPEC.md §5)")
+    review.add_argument("--nit-bar", dest="nit_bar", default=None, choices=config.NIT_BARS,
+                        help="strict (default): report a docs/polish finding only if a user "
+                             "following the docs would fail or be misled; standard: no bar")
+    review.add_argument("--model", default=None,
+                        help="Model id for the default provider. Precedence: this flag, "
+                             "then ZENODOTUS_MODEL, then cli.model in the file.")
     review.add_argument("--log", default="discoveries.jsonl",
                         help="Discovery-log path (JSONL). Use '' to disable. Default: discoveries.jsonl")
-    review.add_argument("--include-optional", action="store_true",
+    review.add_argument("--include-optional", action="store_true", default=None,
                         help="Also run optional/heavier gates (e.g. OpenSSF Scorecard)")
     review.add_argument("--fail-on", dest="fail_on", choices=FAIL_ON_CHOICES,
-                        default=DEFAULT_FAIL_ON,
+                        default=None,
                         help="Block threshold for PANEL findings (the deterministic floor "
                              "always blocks regardless): 'blocker' exits non-zero on a "
                              "blocker-severity finding or reviewer no-go; 'never' (default) "
                              "keeps panel findings advisory — they WARN but never block "
                              "(exit 0). Blocking is opt-in per the maintainer's trust level.")
-    review.add_argument("--shadow", action="store_true",
+    review.add_argument("--shadow", action="store_true", default=None,
                         help="Shadow mode: run the panel even if the floor fails, append "
                              "discoveries to the log, and NEVER fail the build (exit 0). "
                              "The recommended way to accumulate prove-itself evidence on "
@@ -276,16 +345,21 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
             args.log = None
         try:
             result = _run_review(args, provider=provider, now=now)
+        except config.ConfigError as exc:
+            # A bad setting, config file or ref: "could not run" (exit 2),
+            # reported before any gate or reviewer ran.
+            print(f"zenodotus: {exc}", file=sys.stderr)
+            return 2
         except ValueError as exc:
             # Configuration errors the caller can act on (today: no resolvable
             # model, issue #87) are the user's problem to fix, not a zenodotus
-            # crash — print the message, not a traceback. The CLI has no
-            # --model flag, so add the CLI-shaped route to the library-shaped
-            # message. Exit 2 = "could not run", distinct from 1 = "ran, and
+            # crash — print the message, not a traceback. Add the CLI-shaped
+            # routes to the library-shaped message. Exit 2 = "could not run", distinct from 1 = "ran, and
             # the verdict blocks".
             print(f"zenodotus: {exc}", file=sys.stderr)
             print(
-                "\nOn the CLI, set the environment variable:\n"
+                "\nOn the CLI, pass --model <model-id>, set cli.model in "
+                ".zenodotus.json, or set the environment variable:\n"
                 "    export ZENODOTUS_MODEL=<model-id>",
                 file=sys.stderr,
             )
@@ -297,7 +371,7 @@ def main(argv: list[str] | None = None, *, provider=None, now: str | None = None
         # Three-state exit contract (docs/PANEL_VERDICT_SPEC.md §1): pass/warn
         # exit 0; only a block exits non-zero. Shadow is always warn-only, so it
         # is covered by the same rule, but we short-circuit it explicitly.
-        if args.shadow:
+        if result["shadow"]:
             return 0
         return 0 if result["verdict"] in (panel.PASS, panel.WARN) else 1
     return 2

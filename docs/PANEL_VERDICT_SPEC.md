@@ -1,6 +1,6 @@
 # Shared persona-panel verdict spec
 
-**Status:** normative · **Version:** 1.2 · **Applies to:** any synthetic
+**Status:** normative · **Version:** 1.3 · **Applies to:** any synthetic
 reviewer/persona panel in your org, in any language.
 
 This document specifies a **shared verdict shape** — a three-state verdict
@@ -179,6 +179,32 @@ isolation the verdict was actually produced under:
 > `tools: list[str]` field (not nested under `isolation`) — an
 > implementation-defined choice permitted by the paragraph above.
 
+### 1.4 Scope and repeat flags on findings
+
+A panel MAY review only a release's changes, and MAY be told what earlier
+reviews already ruled on ([zenodotus#134](https://github.com/Kromatic-Innovation/zenodotus/issues/134)).
+Two **optional** boolean fields on a finding (§1.2) record that:
+
+```json
+{ "in_diff": true, "repeat": false }
+```
+
+- `in_diff` — `true` when the finding is on a changed line, or on behaviour or
+  docs the reviewed changes affect. A panel that reviewed the whole tree
+  **MUST** set it `true` on every finding (or omit it). Absent means `true`.
+- `repeat` — `true` when the finding re-raises a point a prior ruling (§5)
+  already covered. A panel given no prior rulings **MUST** set it `false` (or
+  omit it). Absent means `false`.
+- A finding with `in_diff: false` or `repeat: true` **MUST NOT** contribute
+  `block` to the aggregate, whatever its severity; it contributes `warn`. A
+  per-reviewer no-go (§1.1) whose every finding is out of diff or a repeat
+  likewise **MUST NOT** force `block`.
+
+> **zenodotus mapping (informative).** `panel.review()` normalises both fields
+> onto every finding (`in_diff` is forced `true` in full scope; `repeat` is
+> forced `false` without prior findings), and `panel.counts_toward_block()`
+> implements the rule above.
+
 ---
 
 ## 2. Discovery-log format
@@ -270,7 +296,48 @@ backward-compatible changes (a new optional field, a clarifying rule) are a
 **minor** bump. Each implementation **SHOULD** record which spec version it
 targets.
 
+## 5. Prior-findings input format
+
+A panel that accepts prior rulings (§1.4) reads them as one JSON object:
+
+```json
+{
+  "version": 1,
+  "findings": [
+    { "finding": "README install section is vague", "ruling": "dismissed" },
+    { "finding": "No link from the README to the changelog", "ruling": "filed", "ref": "#12" },
+    { "finding": "CLI crashes on an empty repo", "ruling": "fixed",
+      "category": "usefulness", "severity": "blocker" }
+  ]
+}
+```
+
+- `version` — **OPTIONAL**, integer, default `1`. A reader **MUST** refuse a
+  version it does not support.
+- `findings` — **REQUIRED**, a list (may be empty). Each entry:
+  - `finding` — **REQUIRED**, non-empty string: the point as it was raised.
+  - `ruling` — **REQUIRED**, one of `fixed` \| `filed` \| `dismissed`.
+  - `ref` — the tracking reference (e.g. an issue number). **REQUIRED** when
+    `ruling` is `filed`, **OPTIONAL** otherwise.
+  - `category`, `severity` — **OPTIONAL**, as in §1.2.
+- A reader **MUST** refuse an entry with any other key, so a misspelled field
+  is never silently dropped.
+
+Only the finding rows and their rulings are passed to reviewers, never the
+earlier reviews' prose, so a prior ruling cannot carry another reviewer's
+reasoning into a no-context review.
+
+> **zenodotus mapping (informative).** `zenodotus review --prior-findings PATH`
+> reads this format (`config.load_prior_findings`) and exits 2 on any violation.
+
 ## Changelog
+
+- **1.3** ([zenodotus#134](https://github.com/Kromatic-Innovation/zenodotus/issues/134)) —
+  additive: new §1.4 optional finding fields `in_diff` and `repeat`, and the
+  rule that such findings never contribute `block`; new §5 prior-findings
+  input format. Minor bump per §4 (new optional fields) — a previously
+  conformant verdict remains conformant, since absent fields read as
+  `in_diff: true`, `repeat: false`.
 
 - **1.2** ([zenodotus#82](https://github.com/Kromatic-Innovation/zenodotus/issues/82)) —
   clarifying: §1.3's top-level `isolation.tools` is described as the

@@ -92,3 +92,37 @@ def shippable_files(root: str | Path) -> list[str]:
     root = Path(root)
     tracked = tracked_files(root)
     return tracked if tracked is not None else walk_files(root)
+
+
+# --- release diff (diff scope, issue #134) ---------------------------------- #
+
+
+class RefError(ValueError):
+    """A ref needed for diff scope does not resolve in the reviewed tree."""
+
+
+def verify_ref(root: str | Path, ref: str | None) -> None:
+    """Raise :class:`RefError` unless ``ref`` resolves to a commit in ``root``'s git repo."""
+    if not ref:
+        raise RefError("diff scope needs --prior-tag")
+    if _which("git") is None:
+        raise RefError("diff scope needs git, which is not on PATH")
+    proc = _run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+    if proc.returncode != 0:
+        raise RefError(f"--prior-tag {ref!r} does not resolve to a commit in {root}")
+
+
+def changed_files(root: str | Path, base: str) -> list[str]:
+    """Files changed between ``base`` and ``HEAD`` (relative posix paths)."""
+    proc = _run(["git", "-C", str(root), "diff", "--name-only", "-z", f"{base}..HEAD"])
+    if proc.returncode != 0:
+        raise RefError(f"git diff {base}..HEAD failed: {proc.stderr.strip()}")
+    return sorted(f for f in proc.stdout.split("\0") if f)
+
+
+def diff_text(root: str | Path, base: str) -> str:
+    """The unified release diff ``git diff <base>..HEAD``."""
+    proc = _run(["git", "-C", str(root), "diff", "--no-color", f"{base}..HEAD"])
+    if proc.returncode != 0:
+        raise RefError(f"git diff {base}..HEAD failed: {proc.stderr.strip()}")
+    return proc.stdout

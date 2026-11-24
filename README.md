@@ -147,7 +147,10 @@ python -m zenodotus review . --reviewers 5 --log discoveries.jsonl
 Options:
 
 - `--json` — machine-readable output (includes each gate's `skipped`/`passed` status, the three-state `verdict`, and the raw `panel_verdict` before policy).
-- `--reviewers N` — panel size (default 3).
+- `--reviewers N` — run N generic reviewers instead of the lens panel (default: unset — one reviewer per lens in `personas`; see [Configuration](#configuration-zenodotusjson)).
+- `--prior-tag REF` (alias `--base-ref`), `--version X.Y.Z`, `--bump-class {patch,minor,major,none}` — the release being reviewed. They pick the scope; see [Configuration](#configuration-zenodotusjson).
+- `--scope {diff,full}`, `--personas LIST`, `--prior-rulings {on,off}`, `--prior-findings PATH`, `--nit-bar {strict,standard}`, `--model ID` — override the matching [configuration](#configuration-zenodotusjson) keys for one run.
+- `--config PATH` — read settings from PATH instead of `<repo>/.zenodotus.json`; `--no-config` ignores the file.
 - `--log PATH` — discovery-log JSONL path; `--log ''` disables logging.
 - `--include-optional` — also run heavier optional gates such as OpenSSF Scorecard.
 - `--fail-on {blocker,never}` — block threshold for **panel** findings. `never`
@@ -189,12 +192,112 @@ provider, configure it on that provider before passing it.
 Current model ids are listed in the [Anthropic models
 overview](https://platform.claude.com/docs/en/about-claude/models/overview).
 
-**On the CLI**, set `ZENODOTUS_MODEL` — the CLI has no `--model` flag, so this
-is how you state the model for `zenodotus review`:
+**On the CLI**, state the model with `--model`, the `ZENODOTUS_MODEL`
+environment variable, or `cli.model` in `.zenodotus.json`, in that order of
+precedence. With none of them set, `zenodotus review` exits 2:
 
 ```bash
 export ZENODOTUS_MODEL=claude-sonnet-5
 zenodotus review .
+```
+
+The library options matching the [configuration](#configuration-zenodotusjson)
+keys are `review(..., scope="full"|"diff", base_ref=<prior tag>,
+lenses=[(id, focus), ...], prior_findings=[...], nit_bar="standard"|"strict")`.
+Their library defaults keep the panel exactly as it was before they existed:
+full scope, `n_reviewers` generic reviewers, no prior findings and the
+`standard` nit bar. The CLI's defaults are the ones in the table below.
+
+### Configuration (`.zenodotus.json`)
+
+Set review options once per repo in an optional, committed `.zenodotus.json`
+at the reviewed repo's root. The workspace release-gate skill reads the same
+file, so one file configures both tools. JSON keeps the package free of
+dependencies. Every key is optional.
+
+**Precedence**, highest first: CLI flag, then `ZENODOTUS_MODEL` (for the model
+only), then the file, then the built-in default. `--config PATH` reads another
+file; `--no-config` ignores the file. `--json` records every effective setting
+with its source under `settings` (`{"<key>": {"value": ..., "source": "flag" |
+"environment" | "file" | "default" | "no-prior-tag"}}`), plus `bump_class` and
+`config_file`.
+
+**Shared keys** (same names, values and defaults as the skill):
+
+| Key | Values | Default | Flag |
+|---|---|---|---|
+| `scope.patch` / `scope.minor` / `scope.major` | `diff` or `full` | `diff` / `diff` / `full` | `--scope` |
+| `personas` | a list of lens slugs, or an object keyed `patch` / `minor` / `major` / `none`, each a non-empty list | `["drive-by-installer", "production-evaluator", "maintainers-maintainer"]` | `--personas` |
+| `prior_rulings` | `on` or `off` | `on` | `--prior-rulings` |
+| `nit_bar` | `strict` or `standard` | `strict` | `--nit-bar` |
+
+- **Scope.** The bump class picks `scope.<class>`. Give it with
+  `--bump-class`, or give `--prior-tag` and `--version` and it is derived by
+  SemVer comparison. With no `--prior-tag` the class is `none` and the scope is
+  always `full`; `--scope diff` then exits 2. In `diff` scope each reviewer
+  also gets the changed-file list and `git diff <prior-tag>..HEAD`, with the
+  tree still there for context, and is told to report only on changed lines
+  and the behaviour or docs they affect. Every finding carries `in_diff`; a
+  finding with `in_diff: false` is reported as a warning and **never blocks**,
+  whatever `--fail-on` says. In `full` scope every finding is `in_diff: true`.
+- **Personas** are reviewer lenses, one reviewer each, with the lens slug as
+  the reviewer id. Built-in lenses: `drive-by-installer`,
+  `production-evaluator`, `maintainers-maintainer`, `drive-by-contributor`. A
+  lens adds a focus, not internal context: reviewers stay no-context and blind
+  to each other. A class missing from a per-class object uses the default.
+- **Prior rulings.** `--prior-findings PATH` is a JSON file of earlier
+  findings, each ruled `fixed`, `filed` (with a `ref`) or `dismissed` (format:
+  [docs/PANEL_VERDICT_SPEC.md §5](docs/PANEL_VERDICT_SPEC.md)). When
+  `prior_rulings` is `on`, reviewers are told not to re-raise a ruled point
+  unless the reviewed changes touch it. A re-raised point is marked
+  `repeat: true` and never counts toward a block.
+- **Nit bar.** Under `strict`, reviewers report a docs or polish finding only
+  if a user following the docs as written would fail or be misled. `standard`
+  is the rubric without that bar.
+
+**Package-only keys** live under `cli`, which the skill accepts and ignores:
+
+| Key | Values | Default | Flag |
+|---|---|---|---|
+| `cli.reviewers` | positive integer: that many generic reviewers, in place of the `personas` lenses | unset | `--reviewers` |
+| `cli.fail_on` | `blocker` or `never` | `never` | `--fail-on` |
+| `cli.include_optional` | `true` or `false` | `false` | `--include-optional` |
+| `cli.reviewer_tools` | list of tool names | unset (no tools) | `--reviewer-tools` |
+| `cli.shadow` | `true` or `false` | `false` | `--shadow` |
+| `cli.model` | model id | unset | `--model` (and `ZENODOTUS_MODEL`) |
+| `cli.lenses` | list of custom lenses `{"id": "<slug>", "focus": "<text>"}` | none | — |
+| `cli.personas` | same shape as `personas`, and may name `cli.lenses` ids. Overrides `personas` for the package only | unset | `--personas` |
+
+The panel comes from, highest first: `--reviewers`, `--personas`,
+`cli.reviewers`, `cli.personas`, `personas`, the default lenses.
+
+The skill's own release-gate keys (`disposition`, `trivial_fix_max_lines`,
+`rerun`) are accepted and ignored. Any other unknown top-level key, an unknown
+key under `cli`, an invalid value, or a duplicate key exits **2** ("could not
+run") with a message naming the dotted key, such as `scope.patch`, before any
+gate or reviewer runs.
+
+A sample both tools accept:
+
+```json
+{
+  "scope": { "patch": "diff", "minor": "diff", "major": "full" },
+  "personas": ["drive-by-installer", "production-evaluator", "maintainers-maintainer"],
+  "prior_rulings": "on",
+  "nit_bar": "strict",
+  "cli": {
+    "fail_on": "blocker",
+    "model": "claude-sonnet-5",
+    "lenses": [{ "id": "api-auditor", "focus": "Judge whether the public API is small, documented and stable." }],
+    "personas": { "major": ["drive-by-installer", "production-evaluator", "api-auditor"] }
+  }
+}
+```
+
+A patch-release review then looks like:
+
+```bash
+zenodotus review . --prior-tag v0.3.0 --version 0.3.1 --prior-findings prior.json
 ```
 
 ### Shadow mode (recommended for accumulating evidence)
