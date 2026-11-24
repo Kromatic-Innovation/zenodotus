@@ -19,6 +19,33 @@ commitment and stays unused, so MINOR and PATCH do double duty:
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-24
+
+Minor release: configurable review. `zenodotus review` now reads an optional
+per-repo `.zenodotus.json`, can review only a release's diff, and runs
+named reviewer lenses with prior rulings and a nit bar.
+
+**Summary.**
+
+- **Breaking and behaviour changes.** There is no built-in default model any
+  more: set `ZENODOTUS_MODEL`, pass `--model`, or pass `model=` to
+  `review()`, or the CLI exits 2. With no `.zenodotus.json` the CLI also has
+  new defaults: three lens reviewers instead of three generic ones, diff scope
+  for patch and minor releases when a prior tag is given, prior rulings on,
+  and a strict nit bar. The library's `panel.review()` defaults are
+  unchanged apart from the model.
+- **Experimental surface.** None is marked experimental. The new
+  `.zenodotus.json` keys and CLI flags are covered by the versioning
+  convention above like any other public surface.
+- **Security-relevant changes.** The leak self-check now scans tracked files
+  under `dist/` and `build/` too, so a check that passed before may now flag
+  a leak there. It no longer flags its own custom `--denylist-file`. Reviewer
+  tool isolation is unchanged: deny by default, with a panel-wide allowlist.
+- **Upgrade steps.** Set `ZENODOTUS_MODEL` (or pass `--model`) before running
+  the CLI. To keep the 0.3.0 panel, pass `--reviewers 3 --nit-bar standard
+  --scope full`, or commit
+  `{"nit_bar": "standard", "cli": {"reviewers": 3}}` as `.zenodotus.json`.
+
 ### Breaking-change status
 
 **Breaking for anyone who relied on the implicit default model**, and a
@@ -117,6 +144,27 @@ when released. The library's `panel.review()` defaults are unchanged.
   ambient to fall through to — and an unset model would otherwise surface as a
   confusing SDK-level failure on the first reviewer call.
 
+### Fixed
+
+- **Leak self-check scans tracked `dist/` and `build/`**
+  ([#106](https://github.com/Kromatic-Innovation/zenodotus/issues/106)).
+  The check had a private directory filter that the panel's file set did not
+  have, so tracked files there were never scanned.
+- **Leak self-check exempts a custom `--denylist-file`**
+  ([#109](https://github.com/Kromatic-Innovation/zenodotus/issues/109)).
+  Only the default denylist file name was exempt, so a custom one flagged
+  itself.
+- **The verdict marker's `git` call is guarded**
+  ([#111](https://github.com/Kromatic-Innovation/zenodotus/issues/111)) like
+  the other shell-out modules, so a missing `git` no longer raises.
+- `resolve_policy()` documents that `reviewer_id` is for attribution only and
+  the tool allowlist is panel-wide
+  ([#82](https://github.com/Kromatic-Innovation/zenodotus/issues/82)).
+- The docs no longer call `packaging_ok` pyroma-only, and no longer claim a
+  package-metadata check that no code runs
+  ([#113](https://github.com/Kromatic-Innovation/zenodotus/issues/113),
+  [#115](https://github.com/Kromatic-Innovation/zenodotus/issues/115)).
+
 ## [0.3.0] - 2026-07-27
 
 Minor release: reviewer tool isolation is now structurally enforced, not
@@ -207,6 +255,8 @@ Initial packaging refinement of the bootstrap scaffold release.
 Initial bootstrap scaffold release: deterministic pre-gates plus the
 no-context reviewer panel.
 
+[0.4.0]: https://github.com/Kromatic-Innovation/zenodotus/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Kromatic-Innovation/zenodotus/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Kromatic-Innovation/zenodotus/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Kromatic-Innovation/zenodotus/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Kromatic-Innovation/zenodotus/releases/tag/v0.1.0
