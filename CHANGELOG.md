@@ -19,6 +19,14 @@ commitment and stays unused, so MINOR and PATCH do double duty:
 
 ## [Unreleased]
 
+### Changed
+
+- Project status is now **maintenance**: the README Status section says so
+  (bug and security fixes only, best-effort; no new features planned) and
+  `SECURITY.md` matches. `SECURITY.md` now names email as the reporting route,
+  because GitHub private vulnerability reporting is not enabled on this
+  repository. No code change.
+
 ## [0.4.0] - 2026-11-24
 
 Minor release: configurable review. `zenodotus review` now reads an optional
