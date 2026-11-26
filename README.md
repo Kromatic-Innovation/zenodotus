@@ -4,6 +4,20 @@
 
 **An OSS release-readiness review gate: deterministic pre-gates + a no-context reviewer panel.** It renders a three-state verdict — **pass / warn / block** — where warnings are advisory and **never block** (exit 0). Blocking is reserved for genuine blockers and is opt-in per the maintainer's trust level; the default posture is advisory.
 
+## Status
+
+**In maintenance.** Zenodotus is published on PyPI (`pip install zenodotus`) and
+stays fully usable: it is the release gate the
+[athenaeum](https://github.com/Kromatic-Innovation/athenaeum) release train runs on.
+Maintenance means:
+
+- **Bug and security fixes only**, on a best-effort basis.
+- **No new features are planned.**
+- Releases continue as needed to ship those fixes, under the existing pre-1.0
+  versioning convention (see [CHANGELOG.md](CHANGELOG.md)).
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 **Use case:** you're about to open-source a repo and want more than a green CI badge before you flip it public — something that catches the stuff linters structurally can't: leaked internal context, a README that only makes sense to people who already work here, scope creep, an unfinished feature dressed up as done.
 
 **Differentiator:** every "is this OSS-ready" tool on the market is a checklist — license present, CoC present, no secrets. Zenodotus composes those (via existing tools: Scorecard, REUSE, Gitleaks, pyroma) as a hard floor, then adds what checklists can't do: independent, no-context reviewers who render a judgment call, not a checkbox. Verdicts get logged; every panel-only finding (something the deterministic floor missed) is the evidence the panel earns its keep.
@@ -27,16 +41,6 @@ The novel piece is the **reviewer-panel-as-gate**, not the checklist.
 > separate by design; both satisfy a shared verdict shape instead of sharing
 > code — see [`docs/PANEL_VERDICT_SPEC.md`](docs/PANEL_VERDICT_SPEC.md)
 > (rationale: zenodotus#36).
-
-## Status
-
-**Public and published** — `zenodotus` is on PyPI (`pip install zenodotus`)
-and this repo is open source. The core pipeline (deterministic gates → no-context
-reviewer panel → discovery log → verdict) is wired end to end via
-`zenodotus review`. Still pre-1.0: the "prove itself" work (docs/CONCEPT.md) —
-accumulating panel-only discoveries and distilling them into the eval suite — now
-serves as ongoing validation that the panel earns its keep, not as a gate holding
-back a publication that has already happened.
 
 ## How it works
 
@@ -390,8 +394,8 @@ Install the pip-installable helpers with `pip install "zenodotus[tools]"`.
 Zenodotus only justifies its existence if the panel finds things the free
 deterministic tools do not. Every such finding is recorded to a structured
 **discovery log** (`discovery_log.py`). The log is the running evidence that the
-panel earns its keep — see [docs/CONCEPT.md](docs/CONCEPT.md) and the "prove
-itself" issues for how those discoveries feed the eval suite.
+panel earns its keep — see [docs/CONCEPT.md](docs/CONCEPT.md) for how those
+discoveries feed the eval suite.
 
 ## License
 

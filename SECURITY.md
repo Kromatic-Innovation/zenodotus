@@ -2,8 +2,9 @@
 
 ## Supported Versions
 
-Zenodotus is published to PyPI and pre-1.0, under active build-out (see
-`docs/CONCEPT.md`). Until a tagged `1.0` release, security fixes target the latest
+Zenodotus is published to PyPI and pre-1.0, and is in maintenance: bug and
+security fixes only, on a best-effort basis (see the Status section of
+`README.md`). Security fixes target the latest
 published release — the `main` branch it is cut from (via `promote-main.yml`) and
 the corresponding PyPI release — plus the `develop` integration branch that feeds
 it. Older releases and pre-release tags are not maintained.
@@ -19,12 +20,11 @@ it. Older releases and pre-release tags are not maintained.
 **Please do not report security vulnerabilities through public GitHub issues,
 pull requests, or discussions.**
 
-Instead, report them privately using one of:
+Instead, report them privately by **email** to **security@kromatic.com**.
 
-1. **GitHub private vulnerability reporting** (preferred) — open the repository's
-   **Security** tab and choose **"Report a vulnerability"**. This opens a private
-   advisory visible only to you and the maintainers.
-2. **Email** — send details to **security@kromatic.com**.
+If the repository's **Security** tab offers **"Report a vulnerability"** (GitHub
+private vulnerability reporting), you may use that instead; it opens a private
+advisory visible only to you and the maintainers.
 
 Please include, as far as you can:
 
